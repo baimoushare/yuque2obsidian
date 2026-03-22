@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>语雀→Obsidian</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="aurora aurora-left"></div>
+    <div class="aurora aurora-right"></div>
+    <main class="shell">
+      <section class="hero panel">
+        <div>
+          <h1>语雀→Obsidian</h1>
+        </div>
+        <div class="hero-actions">
+          <button id="login-btn" class="primary">登录语雀</button>
+          <button id="scan-btn" class="secondary">扫描知识库</button>
+          <button id="export-btn" class="primary">开始导出</button>
+          <button id="stop-btn" class="ghost">停止导出</button>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel config-card">
+          <div class="section-title">
+            <h2>导出配置</h2>
+            <button id="save-settings-btn" class="ghost small">保存配置</button>
+          </div>
+          <div class="config-scroll">
+            <div class="config-account">
+              <span>已登录账号</span>
+              <div id="account-badge" class="account-badge inline">
+                <span class="account-dot"></span>
+                <span id="account-text">未检测到登录状态</span>
+              </div>
+            </div>
+
+            <label>
+              <span>浏览器路径</span>
+              <input id="browser-path" placeholder="可留空，使用 Puppeteer 默认浏览器" />
+            </label>
+
+            <label>
+              <span>Cookie 路径</span>
+              <input id="cookie-path" />
+            </label>
+
+            <label>
+              <span>导出目录</span>
+              <div class="inline-field">
+                <input id="output-dir" />
+                <button id="choose-output-btn" class="secondary">选择</button>
+              </div>
+            </label>
+
+            <label>
+              <span>加密文本块密码</span>
+              <div class="password-field">
+                <textarea
+                  id="encrypted-passwords"
+                  class="masked-textarea"
+                  placeholder="支持设置多个密码，一行一个。导出遇到加密块时会按顺序逐个尝试。"
+                  spellcheck="false"
+                ></textarea>
+                <button
+                  id="toggle-passwords-btn"
+                  class="ghost icon-btn"
+                  type="button"
+                  aria-label="显示或隐藏密码"
+                  title="显示或隐藏密码"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5C6.5 5 2.2 8.3 1 12c1.2 3.7 5.5 7 11 7s9.8-3.3 11-7c-1.2-3.7-5.5-7-11-7Zm0 11.2A4.2 4.2 0 1 1 12 7.8a4.2 4.2 0 0 1 0 8.4Zm0-2.2a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"></path>
+                  </svg>
+                </button>
+              </div>
+              <small class="field-hint">一行一个密码，全部密码都不匹配时会跳过加密内容，并在 CSV 中记录原因。</small>
+            </label>
+
+            <div class="toggle-row">
+              <label class="toggle">
+                <input id="download-images" type="checkbox" />
+                <span>下载图片</span>
+              </label>
+              <label class="toggle">
+                <input id="download-attachments" type="checkbox" />
+                <span>下载附件</span>
+              </label>
+              <label class="toggle">
+                <input id="incremental-export" type="checkbox" />
+                <span>增量导出</span>
+              </label>
+            </div>
+
+            <div class="pill-row">
+              <span class="pill">复杂块: 快照优先</span>
+              <span class="pill">附件布局: 知识库级 `_assets`</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel books-card">
+          <div class="section-title">
+            <h2>知识库选择</h2>
+            <div class="tree-actions">
+              <button id="expand-all-btn" class="ghost small">展开全部</button>
+              <button id="collapse-all-btn" class="ghost small">折叠全部</button>
+            </div>
+          </div>
+          <span id="book-count" class="muted book-count-line">未扫描</span>
+          <div id="books-list" class="books-list empty-state">先登录并扫描知识库。</div>
+        </article>
+
+        <article class="panel logs-card">
+          <div class="section-title">
+            <h2>任务日志</h2>
+            <button id="open-output-btn" class="ghost small">打开导出目录</button>
+          </div>
+          <div id="progress-meta" class="progress-meta">
+            <div class="progress-group">
+              <div class="progress-heading">
+                <strong>整体进度</strong>
+                <span id="progress-text">暂无任务</span>
+              </div>
+              <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+            </div>
+            <div class="progress-group">
+              <div class="progress-heading">
+                <strong>当前知识库进度</strong>
+                <span id="book-progress-text">暂无任务</span>
+              </div>
+              <div class="progress-track subtle">
+                <div id="book-progress-bar" class="progress-bar secondary-bar"></div>
+              </div>
+            </div>
+          </div>
+          <pre id="logs" class="logs">等待任务输出...</pre>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

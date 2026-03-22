@@ -1,0 +1,794 @@
+:root {
+  --bg-top: #f4ebff;
+  --bg-bottom: #f7f3ff;
+  --panel-bg: rgba(255, 255, 255, 0.54);
+  --panel-stroke: rgba(255, 255, 255, 0.65);
+  --text-main: #3a2a52;
+  --text-soft: #74618f;
+  --accent: #af92ff;
+  --accent-deep: #8b68f4;
+  --shadow: 0 28px 60px rgba(117, 80, 173, 0.18);
+  --radius-xl: 34px;
+  --radius-lg: 24px;
+  --radius-md: 18px;
+  --font-display: "LXGW WenKai", "霞鹜文楷", "Microsoft YaHei UI", serif;
+  --font-body: "LXGW WenKai", "霞鹜文楷", "Microsoft YaHei UI", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+html {
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar {
+  width: 0;
+}
+
+html.show-shell-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 104, 244, 0.42) transparent;
+}
+
+html.show-shell-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 18px;
+}
+
+html::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+html::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(139, 104, 244, 0.38);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-body);
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at 12% 18%, rgba(209, 186, 255, 0.9), transparent 30%),
+    radial-gradient(circle at 86% 12%, rgba(199, 225, 255, 0.72), transparent 28%),
+    linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+  overflow: hidden;
+}
+
+.aurora {
+  position: fixed;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  filter: blur(64px);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.aurora-left {
+  left: -120px;
+  top: 120px;
+  background: rgba(188, 146, 255, 0.52);
+}
+
+.aurora-right {
+  right: -120px;
+  bottom: 60px;
+  background: rgba(171, 212, 255, 0.45);
+}
+
+.shell {
+  position: relative;
+  z-index: 1;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 28px;
+  overflow: hidden;
+}
+
+.panel {
+  backdrop-filter: blur(24px);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-stroke);
+  box-shadow: var(--shadow);
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  border-radius: var(--radius-lg);
+  min-height: 82px;
+  padding: 14px 20px;
+  flex-shrink: 0;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+h1 {
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.account-badge {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(168, 142, 227, 0.18);
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.account-badge.inline {
+  margin-top: 0;
+}
+
+.account-badge.logged-in {
+  color: var(--text-main);
+}
+
+.account-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(139, 104, 244, 0.28);
+  box-shadow: 0 0 0 5px rgba(175, 146, 255, 0.12);
+}
+
+.account-badge.logged-in .account-dot {
+  background: #6fcf97;
+  box-shadow: 0 0 0 5px rgba(111, 207, 151, 0.16);
+}
+
+.hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.hero-actions button {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  padding: 9px 12px;
+  font-size: 13px;
+  border-radius: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 420px) minmax(340px, 440px) minmax(0, 1fr);
+  gap: 22px;
+  flex: 1;
+  min-height: 0;
+  max-width: 100%;
+}
+
+.config-card,
+.books-card,
+.logs-card {
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.config-card {
+  overflow: hidden;
+  position: relative;
+}
+
+.config-card .section-title {
+  flex-shrink: 0;
+  padding-bottom: 4px;
+}
+
+.config-scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 18px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.config-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.config-scroll:hover {
+  scrollbar-color: rgba(139, 104, 244, 0.42) transparent;
+}
+
+.config-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 18px;
+}
+
+.config-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.config-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: transparent;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.config-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(139, 104, 244, 0.38);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+}
+
+.section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tree-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.muted {
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.book-count-line {
+  display: block;
+  margin-top: -8px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.config-account {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+input {
+  width: 100%;
+  border: 1px solid rgba(168, 142, 227, 0.22);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 16px;
+  padding: 14px 16px;
+  font: inherit;
+  color: var(--text-main);
+  outline: none;
+}
+
+input:focus,
+textarea:focus {
+  border-color: rgba(139, 104, 244, 0.5);
+  box-shadow: 0 0 0 4px rgba(175, 146, 255, 0.14);
+}
+
+textarea {
+  width: 100%;
+  border: 1px solid rgba(168, 142, 227, 0.22);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 16px;
+  padding: 14px 16px;
+  font: inherit;
+  color: var(--text-main);
+  outline: none;
+  resize: vertical;
+  min-height: 92px;
+  line-height: 1.5;
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.masked-textarea {
+  -webkit-text-security: disc;
+}
+
+.icon-btn {
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.icon-btn.active {
+  background: rgba(175, 146, 255, 0.18);
+  border-color: rgba(139, 104, 244, 0.32);
+}
+
+.field-hint {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.inline-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+button {
+  border: 0;
+  border-radius: 16px;
+  padding: 13px 18px;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  opacity: 0.56;
+  cursor: default;
+  transform: none;
+}
+
+.small {
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  color: white;
+  box-shadow: 0 18px 30px rgba(139, 104, 244, 0.28);
+}
+
+.secondary,
+.ghost,
+.tree-toggle,
+.tree-checkbox {
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--text-main);
+  border: 1px solid rgba(168, 142, 227, 0.18);
+}
+
+.toggle-row,
+.pill-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-main);
+}
+
+.pill {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.status-banner {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(175, 146, 255, 0.16), rgba(255, 255, 255, 0.48));
+  color: var(--text-main);
+}
+
+.books-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 104, 244, 0.42) transparent;
+}
+
+.books-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.books-list::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 18px;
+}
+
+.books-list::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.books-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(139, 104, 244, 0.38);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.book-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tree-node {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tree-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: 18px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(168, 142, 227, 0.18);
+}
+
+.tree-node.collapsed > .tree-children {
+  display: none;
+}
+
+.tree-toggle,
+.tree-spacer,
+.tree-checkbox {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.tree-toggle {
+  padding: 0;
+  font-size: 12px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--text-soft);
+}
+
+.tree-spacer {
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.tree-checkbox {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.tree-checkbox input,
+.toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  border-radius: 4px;
+  border: 1px solid rgba(168, 142, 227, 0.35);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 2px rgba(139, 104, 244, 0.08);
+  cursor: pointer;
+}
+
+.tree-checkbox input::after,
+.toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transform-origin: center;
+  transition: transform 0.14s ease;
+}
+
+.tree-checkbox input:checked,
+.toggle input[type="checkbox"]:checked {
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  border-color: rgba(139, 104, 244, 0.72);
+  box-shadow: 0 0 0 3px rgba(175, 146, 255, 0.12);
+}
+
+.tree-checkbox input:checked::after,
+.toggle input[type="checkbox"]:checked::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.tree-label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  box-shadow: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.tree-label strong,
+.tree-label span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-label:hover {
+  transform: none;
+}
+
+.tree-label:focus,
+.tree-label:focus-visible,
+.tree-toggle:focus,
+.tree-toggle:focus-visible,
+.tree-checkbox input:focus,
+.tree-checkbox input:focus-visible,
+.toggle input[type="checkbox"]:focus,
+.toggle input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.book-root-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.book-root-label .book-doc-count {
+  min-width: auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(175, 146, 255, 0.14);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tree-label strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tree-label span {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.tree-node.book-root {
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.48);
+  padding: 14px 14px 12px;
+  border: 1px solid rgba(168, 142, 227, 0.14);
+}
+
+.tree-node.book-root > .tree-row .tree-label strong {
+  font-size: 16px;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  color: var(--text-soft);
+  min-height: 200px;
+}
+
+.progress-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.progress-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.progress-heading strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+
+.progress-track.subtle {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-deep));
+  transition: width 0.25s ease;
+}
+
+.secondary-bar {
+  background: linear-gradient(90deg, #8ed0ff, #6b86ff);
+}
+
+.logs {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border-radius: 22px;
+  background: transparent;
+  border: 1px solid rgba(168, 142, 227, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 12px 28px rgba(117, 80, 173, 0.08);
+  color: #3f3158;
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+@media (max-width: 1280px) {
+  body {
+    overflow: auto;
+  }
+
+  .shell {
+    height: auto;
+    overflow: visible;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .hero {
+    gap: 12px;
+    min-height: 78px;
+  }
+
+  .hero-actions {
+    gap: 6px;
+  }
+
+  .hero-actions button {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .config-card,
+  .books-card,
+  .logs-card {
+    min-height: 320px;
+  }
+}
