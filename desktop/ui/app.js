@@ -1,7 +1,8 @@
-const state = {
+﻿const state = {
   settings: null,
   books: [],
   selectedBooks: new Set(),
+  selectedDocuments: new Set(),
   expandedNodes: new Set(),
   currentJobId: null,
   currentOutputDir: '',
@@ -30,8 +31,10 @@ const elements = {
   bookCount: $('#book-count'),
   progressBar: $('#progress-bar'),
   progressText: $('#progress-text'),
+  progressStats: $('#progress-stats'),
   bookProgressBar: $('#book-progress-bar'),
   bookProgressText: $('#book-progress-text'),
+  bookProgressStats: $('#book-progress-stats'),
   logs: $('#logs'),
   loginBtn: $('#login-btn'),
   scanBtn: $('#scan-btn'),
@@ -219,6 +222,7 @@ async function scanBooks() {
   const books = await window.pywebview.api.scanBooks(readSettings());
   state.books = books;
   state.selectedBooks = new Set(books.map((book) => String(book.id)));
+  state.selectedDocuments = new Set();
   state.expandedNodes = collectDefaultExpandedNodes(books);
   renderBooks();
   await refreshLoginStatus();
@@ -231,6 +235,7 @@ async function autoScanBooksOnLaunch() {
     const books = await window.pywebview.api.scanBooks(readSettings());
     state.books = books;
     state.selectedBooks = new Set(books.map((book) => String(book.id)));
+    state.selectedDocuments = new Set();
     state.expandedNodes = collectDefaultExpandedNodes(books);
     renderBooks();
     renderStatus(`已自动扫描 ${books.length} 个知识库`);
@@ -253,10 +258,11 @@ async function onExportButtonClick() {
 }
 
 async function startExport() {
-  const selectedBooks = collectSelectedBooksFromUi();
-  state.selectedBooks = new Set(selectedBooks);
+  const selection = collectExportSelectionFromUi();
+  state.selectedBooks = new Set(selection.fullySelectedBooks);
+  state.selectedDocuments = new Set(selection.selectedDocuments);
 
-  if (selectedBooks.length === 0) {
+  if (selection.selectedBooks.length === 0 && selection.selectedDocuments.length === 0) {
     renderStatus('请先选择至少一个知识库。');
     return;
   }
@@ -264,7 +270,9 @@ async function startExport() {
   await saveSettings();
   const config = {
     ...readSettings(),
-    selectedBooks,
+    selectedBooks: selection.selectedBooks,
+    fullySelectedBooks: selection.fullySelectedBooks,
+    selectedDocuments: selection.selectedDocuments,
   };
 
   state.lastExportConfig = config;
@@ -280,8 +288,9 @@ async function startExport() {
       : `全量导出任务已启动，将导出当前选择的 ${config.selectedBooks.length} 个知识库。`,
   );
   renderLogs([`导出任务已启动，将处理 ${config.selectedBooks.length} 个知识库。`]);
-  setProgress(0, '准备导出...');
-  setBookProgress(0, '等待知识库任务...');
+  const selectionSummary = summarizeSelection(config);
+  setProgress(0, '准备导出...', `0% · 知识库 0/${selectionSummary.totalBooks} · 文档 0/${selectionSummary.totalDocuments}`);
+  setBookProgress(0, '等待知识库任务...', '0% · 文档 0/0');
   pollJob(jobId);
 }
 
@@ -325,6 +334,8 @@ function renderBooks() {
     tree.appendChild(
       renderTreeNode(book.root, {
         bookId: String(book.id),
+        bookSlug: book.slug,
+        bookUserUrl: book.userUrl,
         rootName: book.name,
         docCount: book.documentCount || 0,
         path: [],
@@ -339,6 +350,10 @@ function renderBooks() {
 function renderTreeNode(node, meta) {
   const nodeId = makeNodeId(meta.bookId, meta.path, node.name);
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  const docUrl = getAbsoluteDocUrl(node, meta);
+  const isDocument = Boolean(docUrl);
+  const descendantDocUrls = collectDocumentUrls(node, meta, []);
+  const selectionState = getNodeSelectionState(meta.bookId, descendantDocUrls, meta.isBookRoot);
   const wrapper = document.createElement('div');
   wrapper.className = `tree-node${meta.isBookRoot ? ' book-root' : ''}${hasChildren && !state.expandedNodes.has(nodeId) ? ' collapsed' : ''}`;
   wrapper.dataset.nodeId = nodeId;
@@ -361,14 +376,28 @@ function renderTreeNode(node, meta) {
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.dataset.bookId = meta.bookId;
-    checkbox.checked = state.selectedBooks.has(meta.bookId);
+    checkbox.checked = selectionState.checked;
+    checkbox.indeterminate = selectionState.indeterminate;
     checkbox.addEventListener('click', (event) => handleBookSelectionInteraction(meta.bookId, event, 'checkbox'));
     checkboxWrap.appendChild(checkbox);
     row.appendChild(checkboxWrap);
   } else {
-    const spacer = document.createElement('div');
-    spacer.className = 'tree-spacer';
-    row.appendChild(spacer);
+    const checkboxWrap = document.createElement('label');
+    checkboxWrap.className = 'tree-checkbox';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.dataset.bookId = meta.bookId;
+    if (docUrl) {
+      checkbox.dataset.docUrl = docUrl;
+    }
+    checkbox.checked = selectionState.checked;
+    checkbox.indeterminate = selectionState.indeterminate;
+    checkbox.disabled = descendantDocUrls.length === 0;
+    checkbox.addEventListener('click', (event) =>
+      handleNodeSelectionInteraction(meta.bookId, descendantDocUrls, event, 'checkbox'),
+    );
+    checkboxWrap.appendChild(checkbox);
+    row.appendChild(checkboxWrap);
   }
 
   const label = document.createElement('button');
@@ -389,9 +418,12 @@ function renderTreeNode(node, meta) {
     const subtitle = document.createElement('span');
     subtitle.textContent = describeNode(node);
     label.appendChild(subtitle);
+    if (isDocument) {
+      label.addEventListener('click', (event) => handleNodeSelectionInteraction(meta.bookId, descendantDocUrls, event, 'label'));
+    }
   }
 
-  if (hasChildren && !meta.isBookRoot) {
+  if (hasChildren && !meta.isBookRoot && !isDocument) {
     label.addEventListener('click', () => toggleNode(nodeId));
   }
   row.appendChild(label);
@@ -433,6 +465,7 @@ function describeNode(node) {
 function toggleBookSelection(bookId, checked) {
   if (checked) {
     state.selectedBooks.add(bookId);
+    clearDocumentSelectionsForBook(bookId);
   } else {
     state.selectedBooks.delete(bookId);
   }
@@ -455,24 +488,66 @@ function handleBookSelectionInteraction(bookId, event, source) {
     state.selectedBooks = new Set();
     for (let index = from; index <= to; index += 1) {
       state.selectedBooks.add(orderedBookIds[index]);
+      clearDocumentSelectionsForBook(orderedBookIds[index]);
     }
     orderedBookIds.forEach((id) => syncBookCheckboxes(id, state.selectedBooks.has(id)));
   } else if (event.ctrlKey || event.metaKey) {
     toggleBookSelection(bookId, !currentSelected);
   } else if (source === 'label') {
     state.selectedBooks = new Set([bookId]);
+    clearDocumentSelectionsForBook(bookId);
     orderedBookIds.forEach((id) => syncBookCheckboxes(id, state.selectedBooks.has(id)));
   } else {
     toggleBookSelection(bookId, !currentSelected);
   }
 
   state.lastSelectedBookId = bookId;
+  renderBooks();
 }
 
 function syncBookCheckboxes(bookId, checked) {
   document.querySelectorAll(`input[type="checkbox"][data-book-id="${cssEscape(bookId)}"]`).forEach((input) => {
+    if (!input.dataset.docUrl) {
+      input.checked = checked;
+    }
+  });
+}
+
+function handleNodeSelectionInteraction(bookId, descendantDocUrls, event, source) {
+  event.preventDefault();
+  if (source === 'checkbox') {
+    event.stopPropagation();
+  }
+
+  if (descendantDocUrls.length === 0) {
+    return;
+  }
+
+  if (state.selectedBooks.has(bookId)) {
+    state.selectedBooks.delete(bookId);
+    syncBookCheckboxes(bookId, false);
+    clearDocumentSelectionsForBook(bookId);
+  }
+
+  const fullySelected = descendantDocUrls.every((docUrl) => state.selectedDocuments.has(docUrl));
+  if (fullySelected) {
+    descendantDocUrls.forEach((docUrl) => state.selectedDocuments.delete(docUrl));
+  } else {
+    descendantDocUrls.forEach((docUrl) => state.selectedDocuments.add(docUrl));
+  }
+  renderBooks();
+}
+
+function syncDocumentCheckboxes(docUrl, checked) {
+  document.querySelectorAll(`input[type="checkbox"][data-doc-url="${cssEscape(docUrl)}"]`).forEach((input) => {
     input.checked = checked;
   });
+}
+
+function clearDocumentSelectionsForBook(bookId) {
+  const urls = collectDocumentUrlsForBook(bookId);
+  urls.forEach((docUrl) => state.selectedDocuments.delete(docUrl));
+  urls.forEach((docUrl) => syncDocumentCheckboxes(docUrl, false));
 }
 
 function toggleNode(nodeId) {
@@ -510,6 +585,80 @@ function collectAllNodeIds(node, bookId, path, output) {
 
 function makeNodeId(bookId, path, name) {
   return `${bookId}::${path.join('.')}::${name}`;
+}
+
+function isDocumentNode(node) {
+  return node?.type === 'DOC' || node?.type === 'TITLE+DOC';
+}
+
+function getAbsoluteDocUrl(node, meta) {
+  if (!isDocumentNode(node) || !node?.url || !meta.bookUserUrl || !meta.bookSlug) {
+    return '';
+  }
+  return `https://www.yuque.com/${meta.bookUserUrl}/${meta.bookSlug}/${node.url}`.replace(/\/$/, '');
+}
+
+function collectDocumentUrlsForBook(bookId) {
+  const book = state.books.find((item) => String(item.id) === String(bookId));
+  if (!book?.root) {
+    return [];
+  }
+  return collectDocumentUrls(book.root, {
+    bookUserUrl: book.userUrl,
+    bookSlug: book.slug,
+  });
+}
+
+function collectDocumentUrls(node, meta, output = []) {
+  const docUrl = getAbsoluteDocUrl(node, meta);
+  if (docUrl) {
+    output.push(docUrl);
+  }
+  (node.children || []).forEach((child) => collectDocumentUrls(child, meta, output));
+  return output;
+}
+
+function getNodeSelectionState(bookId, descendantDocUrls, isBookRoot = false) {
+  if (isBookRoot) {
+    return {
+      checked: state.selectedBooks.has(bookId),
+      indeterminate: false,
+    };
+  }
+
+  if (state.selectedBooks.has(bookId)) {
+    return {
+      checked: true,
+      indeterminate: false,
+    };
+  }
+
+  if (descendantDocUrls.length === 0) {
+    return {
+      checked: false,
+      indeterminate: false,
+    };
+  }
+
+  const selectedCount = descendantDocUrls.filter((docUrl) => state.selectedDocuments.has(docUrl)).length;
+  if (selectedCount === 0) {
+    return {
+      checked: false,
+      indeterminate: false,
+    };
+  }
+
+  if (selectedCount === descendantDocUrls.length) {
+    return {
+      checked: true,
+      indeterminate: false,
+    };
+  }
+
+  return {
+    checked: false,
+    indeterminate: true,
+  };
 }
 
 function pollJob(jobId) {
@@ -570,20 +719,28 @@ function syncProgress(job) {
 
   const currentBook = latestProgress.book || '';
   const currentDoc = latestProgress.doc || '';
+  const selectionSummary = summarizeSelection(state.lastExportConfig);
+  const overallPercent = latestProgress.percent ?? 0;
+  const completedBooks = latestProgress.completedBooks ?? 0;
+  const totalBooks = latestProgress.totalBooks ?? selectionSummary.totalBooks;
+  const completedDocuments = latestProgress.completedDocuments ?? 0;
+  const totalDocuments = latestProgress.totalDocuments ?? selectionSummary.totalDocuments;
   const overallText = currentBook
     ? `当前知识库：${currentBook}`
     : latestProgress.message || '处理中...';
-  const overallValue = latestProgress.percent ?? 0;
-  setProgress(overallValue, overallText);
+  const overallStats = `${formatPercent(overallPercent)} · 知识库 ${completedBooks}/${totalBooks || 0} · 文档 ${completedDocuments}/${totalDocuments || 0}`;
+  setProgress(overallPercent, overallText, overallStats);
 
   const bookCompleted = latestProgress.bookCompleted ?? 0;
   const bookTotal = latestProgress.bookTotal ?? 0;
+  const bookPercent = latestProgress.bookPercent ?? 0;
   const bookText = currentDoc
     ? `当前笔记：${currentDoc}`
     : currentBook
       ? `${currentBook} ${bookCompleted}/${bookTotal || 0}`
       : latestProgress.message || '暂无任务';
-  setBookProgress(latestProgress.bookPercent ?? 0, bookText);
+  const bookStats = `${formatPercent(bookPercent)} · 文档 ${bookCompleted}/${bookTotal || 0}`;
+  setBookProgress(bookPercent, bookText, bookStats);
 }
 
 function renderStatus(message) {
@@ -604,14 +761,20 @@ function renderLogs(lines) {
   elements.logs.scrollTop = elements.logs.scrollHeight;
 }
 
-function setProgress(value, text) {
+function setProgress(value, text, statsText = '') {
   elements.progressBar.style.width = `${Math.max(0, Math.min(100, value))}%`;
   elements.progressText.textContent = text;
+  if (elements.progressStats) {
+    elements.progressStats.textContent = statsText || `${formatPercent(value)} · 知识库 0/0 · 文档 0/0`;
+  }
 }
 
-function setBookProgress(value, text) {
+function setBookProgress(value, text, statsText = '') {
   elements.bookProgressBar.style.width = `${Math.max(0, Math.min(100, value))}%`;
   elements.bookProgressText.textContent = text;
+  if (elements.bookProgressStats) {
+    elements.bookProgressStats.textContent = statsText || `${formatPercent(value)} · 文档 0/0`;
+  }
 }
 
 function syncControls() {
@@ -676,10 +839,95 @@ function normalizePasswordList(passwords, fallbackPassword) {
 function collectSelectedBooksFromUi() {
   const selected = Array.from(
     document.querySelectorAll('input[type="checkbox"][data-book-id]:checked'),
-    (input) => input.dataset.bookId,
+    (input) => (input.dataset.docUrl ? '' : input.dataset.bookId),
   ).filter(Boolean);
 
   return selected.length > 0 ? selected : [...state.selectedBooks];
+}
+
+function collectSelectedDocumentsFromUi() {
+  const selected = Array.from(
+    document.querySelectorAll('input[type="checkbox"][data-doc-url]:checked'),
+    (input) => input.dataset.docUrl,
+  ).filter(Boolean);
+
+  return selected.length > 0 ? selected : [...state.selectedDocuments];
+}
+
+function collectExportSelectionFromUi() {
+  const fullySelectedBooks = collectSelectedBooksFromUi();
+  const selectedDocuments = collectSelectedDocumentsFromUi();
+  const docParentBooks = Array.from(
+    new Set(
+      Array.from(
+        document.querySelectorAll('input[type="checkbox"][data-doc-url]:checked'),
+        (input) => input.dataset.bookId,
+      ).filter(Boolean),
+    ),
+  );
+
+  return {
+    selectedBooks: Array.from(new Set([...fullySelectedBooks, ...docParentBooks])),
+    fullySelectedBooks,
+    selectedDocuments,
+  };
+}
+
+function summarizeSelection(config) {
+  if (!config) {
+    return { totalBooks: 0, totalDocuments: 0 };
+  }
+
+  const fullySelectedBooks = new Set((config.fullySelectedBooks || []).map(String));
+  const selectedDocuments = new Set(config.selectedDocuments || []);
+  const selectedBookIds = new Set((config.selectedBooks || []).map(String));
+  const allDocumentUrls = new Set();
+
+  for (const book of state.books) {
+    const bookId = String(book.id);
+    if (!selectedBookIds.has(bookId) && !fullySelectedBooks.has(bookId)) {
+      continue;
+    }
+
+    if (fullySelectedBooks.has(bookId)) {
+      collectDocumentUrlsForBook(bookId).forEach((docUrl) => allDocumentUrls.add(docUrl));
+    }
+  }
+
+  selectedDocuments.forEach((docUrl) => allDocumentUrls.add(docUrl));
+
+  return {
+    totalBooks: selectedBookIds.size,
+    totalDocuments: allDocumentUrls.size,
+  };
+}
+
+function formatPercent(value) {
+  return `${Math.max(0, Math.min(100, Math.round(value || 0)))}%`;
+}
+
+/* function describeSelection(selection) {
+  const parts = [];
+  if (selection.fullySelectedBooks.length > 0) {
+    parts.push(`鐏忓棗顕遍崙?${selection.fullySelectedBooks.length} 娑擃亝鏆ｆ稉顏嗙叀鐠囧棗绨盽);
+  }
+  if (selection.selectedDocuments.length > 0) {
+    parts.push(`鐏忓棗顕遍崙?${selection.selectedDocuments.length} 缁″洦瀵氱€规碍鏋冨?`);
+  }
+  return parts.join('閿?);
+}
+
+} */
+
+function describeSelection(selection) {
+  const parts = [];
+  if (selection.fullySelectedBooks.length > 0) {
+    parts.push(`将导出 ${selection.fullySelectedBooks.length} 个整库知识库`);
+  }
+  if (selection.selectedDocuments.length > 0) {
+    parts.push(`将导出 ${selection.selectedDocuments.length} 篇指定文档`);
+  }
+  return parts.join('，');
 }
 
 function setupTransientShellScrollbar() {
@@ -698,3 +946,4 @@ function setupTransientShellScrollbar() {
   window.addEventListener('wheel', showScrollbar, { passive: true });
   window.addEventListener('scroll', showScrollbar, { passive: true });
 }
+

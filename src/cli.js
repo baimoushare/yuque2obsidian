@@ -23,6 +23,8 @@ function readConfig() {
     cookiePath: parsed.cookiePath || path.join(process.cwd(), 'cookies.json'),
     outputDir: parsed.outputDir || path.join(process.cwd(), 'output'),
     selectedBooks: parsed.selectedBooks || [],
+    fullySelectedBooks: parsed.fullySelectedBooks || [],
+    selectedDocuments: parsed.selectedDocuments || [],
     downloadImages: parsed.downloadImages ?? true,
     downloadAttachments: parsed.downloadAttachments ?? true,
     incrementalExport: parsed.incrementalExport ?? true,

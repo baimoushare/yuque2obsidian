@@ -1,4 +1,4 @@
-import fs from 'fs';
+﻿import fs from 'fs';
 import path from 'path';
 import { type } from './const.js';
 import { ExportControl, ExportStateStore } from './export-state.js';
@@ -20,6 +20,13 @@ import {
 
 const MARKDOWN_TIMEOUT_MS = 180000;
 const ARTIFACT_TIMEOUT_MS = 180000;
+const ENCRYPTED_DOM_SELECTORS = Object.freeze({
+  lockedContainer: 'div.ne-card-locked-text-unlock-container[data-testid="ne-card-locked-text-unlock-status"]',
+  input: 'input[data-testid="ne-card-locked-text-unlock-input"]',
+  submitButton: 'div.ne-card-locked-text-unlock-submit-button[data-testid="ne-card-locked-text-unlock-button"]',
+  content: 'div.ne-card-locked-text-read-container[data-testid="ne-card-locked-text-viewer-content"]',
+});
+const ENCRYPTED_SKIP_ATTR = 'data-codex-encrypted-skip';
 const COMPLEX_ARTIFACT_SELECTORS = Object.freeze({
   board: [
     '[data-type*="board"]',
@@ -47,11 +54,10 @@ const COMPLEX_ARTIFACT_SELECTORS = Object.freeze({
     '[class*="sheet-view"]',
   ],
   encrypted: [
-    'input[type="password"]',
-    '[data-type*="encrypt"]',
-    '[class*="encrypt"]',
-    '[class*="Encrypt"]',
-    '[class*="password"]',
+    ENCRYPTED_DOM_SELECTORS.lockedContainer,
+    ENCRYPTED_DOM_SELECTORS.input,
+    ENCRYPTED_DOM_SELECTORS.submitButton,
+    ENCRYPTED_DOM_SELECTORS.content,
   ],
 });
 const FALLBACK_ARTIFACT_REASONS = new Set(['board', 'mindmap', 'datatable', 'encrypted-fallback', 'export-failure']);
@@ -85,7 +91,7 @@ export async function exportBooks(config, emit = () => {}) {
   const control = new ExportControl(config.jobControlPath);
   control.clear();
 
-  const exportPlan = buildExportPlan(books, outputDir);
+  const exportPlan = buildExportPlan(books, outputDir, createSelectionMatcher(config));
   const docLinkMap = new Map(exportPlan.documents.map((doc) => [doc.absoluteDocUrl, doc.targetMdPath]));
 
   exportState.saveMeta({
@@ -132,11 +138,15 @@ export async function exportBooks(config, emit = () => {}) {
     const page = await openAuthenticatedPage(browser, config.cookiePath);
     let completed = 0;
 
-    for (const bookPlan of exportPlan.books) {
+    for (const [bookIndex, bookPlan] of exportPlan.books.entries()) {
+      bookPlan.exportIndex = bookIndex + 1;
+      bookPlan.exportCount = exportPlan.books.length;
       const bookContext = {
         bookPlan,
         total: bookPlan.documents.length,
         completed: 0,
+        index: bookIndex + 1,
+        bookCount: exportPlan.books.length,
       };
       lastBookContext = bookContext;
 
@@ -495,7 +505,36 @@ export async function exportMarkDownFiles() {
   });
 }
 
-function buildExportPlan(books, outputDir) {
+export function createSelectionMatcher(config = {}) {
+  const explicitDocuments = new Set((config.selectedDocuments || []).map(normalizeSelectedDocumentValue).filter(Boolean));
+  const wholeBookSelectionSource =
+    Array.isArray(config.fullySelectedBooks) && config.fullySelectedBooks.length > 0
+      ? config.fullySelectedBooks
+      : explicitDocuments.size === 0
+        ? config.selectedBooks || []
+        : [];
+  const fullySelectedBooks = new Set(wholeBookSelectionSource.map((value) => String(value)));
+
+  return {
+    fullySelectedBooks,
+    explicitDocuments,
+    shouldIncludeDocument(bookId, absoluteDocUrl) {
+      if (fullySelectedBooks.has(String(bookId))) {
+        return true;
+      }
+      if (explicitDocuments.size === 0) {
+        return true;
+      }
+      return explicitDocuments.has(normalizeSelectedDocumentValue(absoluteDocUrl));
+    },
+  };
+}
+
+function normalizeSelectedDocumentValue(value) {
+  return String(value ?? '').trim().replace(/\/$/, '');
+}
+
+function buildExportPlan(books, outputDir, selectionMatcher = createSelectionMatcher()) {
   const allocator = createAllocator();
   const plan = { books: [], documents: [] };
 
@@ -517,14 +556,14 @@ function buildExportPlan(books, outputDir) {
       assetNames: new Map(),
     };
 
-    annotateNode(book.root, bookDir, bookPlan, allocator, plan.documents);
+    annotateNode(book.root, bookDir, bookPlan, allocator, plan.documents, selectionMatcher);
     plan.books.push(bookPlan);
   }
 
   return plan;
 }
 
-function annotateNode(node, currentDir, bookPlan, allocator, allDocuments) {
+function annotateNode(node, currentDir, bookPlan, allocator, allDocuments, selectionMatcher) {
   switch (node.type) {
     case type.Book:
       ensureDir(currentDir);
@@ -557,19 +596,21 @@ function annotateNode(node, currentDir, bookPlan, allocator, allDocuments) {
 
   if (node.type === type.Document || node.type === type.TitleDoc) {
     const absoluteDocUrl = `https://www.yuque.com/${bookPlan.book.user_url}/${bookPlan.book.slug}/${node.object.url}`;
-    const docPlan = {
-      book: bookPlan.book,
-      node,
-      targetMdPath: node.targetMdPath,
-      docUrl: `${bookPlan.book.user_url}/${bookPlan.book.slug}/${node.object.url}`,
-      absoluteDocUrl,
-    };
-    bookPlan.documents.push(docPlan);
-    allDocuments.push(docPlan);
+    if (selectionMatcher.shouldIncludeDocument(bookPlan.book.id, absoluteDocUrl)) {
+      const docPlan = {
+        book: bookPlan.book,
+        node,
+        targetMdPath: node.targetMdPath,
+        docUrl: `${bookPlan.book.user_url}/${bookPlan.book.slug}/${node.object.url}`,
+        absoluteDocUrl,
+      };
+      bookPlan.documents.push(docPlan);
+      allDocuments.push(docPlan);
+    }
   }
 
   for (const child of node.children ?? []) {
-    annotateNode(child, currentDir, bookPlan, allocator, allDocuments);
+    annotateNode(child, currentDir, bookPlan, allocator, allDocuments, selectionMatcher);
   }
 }
 
@@ -622,7 +663,7 @@ async function extractComplexArtifacts(page, docPlan, bookPlan, options = {}) {
       ? options.encryptedBlockPasswords
       : options.encryptedBlockPassword || '',
   );
-  const pageData = await page.evaluate((selectorGroups) => {
+  const pageData = await page.evaluate((selectorGroups, encryptedSelectors) => {
     const root =
       document.querySelector('article') ||
       document.querySelector('.ne-viewer-body') ||
@@ -638,15 +679,12 @@ async function extractComplexArtifacts(page, docPlan, bookPlan, options = {}) {
       ),
     );
 
-    const encryptedTexts = Array.from(
-      root.querySelectorAll('[data-type*="encrypt"], [class*="encrypt"], [class*="Encrypt"], [class*="password"]'),
-    )
-      .map((node) => node.innerText.replace(/\u00a0/g, ' ').trim())
+    const encryptedTexts = Array.from(root.querySelectorAll(encryptedSelectors.content))
+      .map((node) => (node.innerText || node.textContent || '').replace(/\u00a0/g, ' ').trim())
       .map((text) => text.replace(/\n{3,}/g, '\n\n').trim())
-      .filter((text) => text && text.length > 8)
-      .filter((text) => !/输入密码|请输入密码|解锁|确认|查看加密内容|加密文本块/.test(text));
+      .filter((text) => text && text.length > 0);
 
-    const lockedEncryptedCount = root.querySelectorAll('input[type="password"]').length;
+    const lockedEncryptedCount = root.querySelectorAll(encryptedSelectors.input).length;
     const artifactKinds = [];
     for (const [kind, selectors] of Object.entries(selectorGroups)) {
       if (kind === 'encrypted') {
@@ -663,12 +701,13 @@ async function extractComplexArtifacts(page, docPlan, bookPlan, options = {}) {
       encryptedTexts,
       lockedEncryptedCount,
     };
-  }, COMPLEX_ARTIFACT_SELECTORS);
+  }, COMPLEX_ARTIFACT_SELECTORS, ENCRYPTED_DOM_SELECTORS);
+  const extractedEncryptedTexts = await extractEncryptedBlockTexts(page);
 
   const artifacts = {
     ...emptyArtifacts(),
     tables: pageData.tables.filter((table) => table.length > 0),
-    encryptedTexts: dedupeTexts(pageData.encryptedTexts),
+    encryptedTexts: dedupeTexts(extractedEncryptedTexts.length > 0 ? extractedEncryptedTexts : pageData.encryptedTexts),
     encryptedState: {
       ...encryptedState,
       lockedEncryptedCount: pageData.lockedEncryptedCount,
@@ -697,7 +736,8 @@ async function extractComplexArtifacts(page, docPlan, bookPlan, options = {}) {
 }
 
 async function unlockEncryptedBlocks(page, passwords) {
-  const detectedCount = await page.evaluate(() => document.querySelectorAll('input[type="password"]').length);
+  await clearEncryptedBlockSkipMarkers(page);
+  const detectedCount = await countLockedEncryptedInputs(page);
   if (!detectedCount) {
     return {
       attempted: false,
@@ -721,56 +761,168 @@ async function unlockEncryptedBlocks(page, passwords) {
     };
   }
 
-  let remainingLockedCount = detectedCount;
-  let matchedPassword = '';
+  const matchedPasswords = [];
+  let attempted = false;
 
-  for (const candidate of candidates) {
-    await page.evaluate((value) => {
-      const inputs = Array.from(document.querySelectorAll('input[type="password"]'));
-      for (const input of inputs) {
-        input.focus();
-        input.value = '';
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.value = value;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-
-        let container = input.parentElement;
-        let clicked = false;
-        let depth = 0;
-        while (container && depth < 6 && !clicked) {
-          const buttons = Array.from(container.querySelectorAll('button, [role="button"], .btn'));
-          const target = buttons.find((node) => /解锁|确认|确定|提交|查看|显示/.test(node.textContent || ''));
-          if (target) {
-            target.click();
-            clicked = true;
-          }
-          container = container.parentElement;
-          depth += 1;
-        }
-
-        if (!clicked && input.form) {
-          input.form.requestSubmit?.();
-        }
-      }
-    }, candidate);
-
-    await sleep(1200);
-    remainingLockedCount = await page.evaluate(() => document.querySelectorAll('input[type="password"]').length);
-    if (remainingLockedCount === 0) {
-      matchedPassword = candidate;
-      break;
+  while ((await countPendingLockedEncryptedBlocks(page)) > 0) {
+    const result = await unlockNextEncryptedBlock(page, candidates, matchedPasswords);
+    attempted = attempted || result.attempted;
+    if (result.status === 'unlocked' && result.password && !matchedPasswords.includes(result.password)) {
+      matchedPasswords.push(result.password);
     }
   }
 
+  const remainingLockedCount = await countLockedEncryptedInputs(page);
+  await clearEncryptedBlockSkipMarkers(page);
+
   return {
-    attempted: true,
+    attempted,
     detectedCount,
     unlockedCount: Math.max(detectedCount - remainingLockedCount, 0),
     remainingLockedCount,
     attemptedPasswordCount: candidates.length,
-    matchedPassword,
+    matchedPassword: matchedPasswords.join(', '),
   };
+}
+
+async function countLockedEncryptedInputs(page) {
+  return await page.evaluate((selectors) => document.querySelectorAll(selectors.input).length, ENCRYPTED_DOM_SELECTORS);
+}
+
+async function countPendingLockedEncryptedBlocks(page) {
+  return await page.evaluate(
+    ({ lockedContainer, skipAttr }) =>
+      Array.from(document.querySelectorAll(lockedContainer)).filter((node) => !node.hasAttribute(skipAttr)).length,
+    {
+      lockedContainer: ENCRYPTED_DOM_SELECTORS.lockedContainer,
+      skipAttr: ENCRYPTED_SKIP_ATTR,
+    },
+  );
+}
+
+async function clearEncryptedBlockSkipMarkers(page) {
+  await page.evaluate((skipAttr) => {
+    for (const node of document.querySelectorAll(`[${skipAttr}]`)) {
+      node.removeAttribute(skipAttr);
+    }
+  }, ENCRYPTED_SKIP_ATTR);
+}
+
+async function unlockNextEncryptedBlock(page, passwords, matchedPasswords = []) {
+  const orderedPasswords = [...matchedPasswords, ...passwords.filter((password) => !matchedPasswords.includes(password))];
+  const beforeCount = await countLockedEncryptedInputs(page);
+  if (beforeCount === 0) {
+    return { attempted: false, status: 'none', password: '' };
+  }
+
+  for (const password of orderedPasswords) {
+    const prepared = await fillFirstPendingEncryptedBlockPassword(page, password);
+    if (!prepared) {
+      return { attempted: false, status: 'none', password: '' };
+    }
+
+    const submitted = await submitFirstPendingEncryptedBlock(page);
+    if (!submitted) {
+      await page.keyboard.press('Enter');
+    }
+
+    try {
+      await page.waitForFunction(
+        (selectors, previousCount) => document.querySelectorAll(selectors.input).length < previousCount,
+        { timeout: 2500 },
+        ENCRYPTED_DOM_SELECTORS,
+        beforeCount,
+      );
+      return { attempted: true, status: 'unlocked', password };
+    } catch {
+      await sleep(500);
+    }
+  }
+
+  await markFirstPendingEncryptedBlockSkipped(page);
+  return {
+    attempted: orderedPasswords.length > 0,
+    status: 'skipped',
+    password: '',
+  };
+}
+
+async function fillFirstPendingEncryptedBlockPassword(page, password) {
+  const container = await page.$(`${ENCRYPTED_DOM_SELECTORS.lockedContainer}:not([${ENCRYPTED_SKIP_ATTR}])`);
+  if (!container) {
+    return false;
+  }
+
+  const input = await container.$(ENCRYPTED_DOM_SELECTORS.input);
+  if (!input) {
+    return false;
+  }
+
+  await input.evaluate((node) => node.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  await input.click({ clickCount: 1 });
+  await page.keyboard.down('Control');
+  await page.keyboard.press('KeyA');
+  await page.keyboard.up('Control');
+  await page.keyboard.press('Backspace');
+  await input.type(password, { delay: 40 });
+  await input.evaluate((node, value) => {
+    const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+    if (descriptor?.set) {
+      descriptor.set.call(node, value);
+    } else {
+      node.value = value;
+    }
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+    node.dispatchEvent(new Event('change', { bubbles: true }));
+    node.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+  }, password);
+  return true;
+}
+
+async function submitFirstPendingEncryptedBlock(page) {
+  const container = await page.$(`${ENCRYPTED_DOM_SELECTORS.lockedContainer}:not([${ENCRYPTED_SKIP_ATTR}])`);
+  if (!container) {
+    return false;
+  }
+
+  const button = await container.$(ENCRYPTED_DOM_SELECTORS.submitButton);
+  if (button) {
+    await button.evaluate((node) => node.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    await button.click();
+    return true;
+  }
+
+  const input = await container.$(ENCRYPTED_DOM_SELECTORS.input);
+  if (input) {
+    await input.press('Enter');
+    return true;
+  }
+
+  return false;
+}
+
+async function markFirstPendingEncryptedBlockSkipped(page) {
+  await page.evaluate(
+    ({ lockedContainer, skipAttr }) => {
+      const target = Array.from(document.querySelectorAll(lockedContainer)).find((node) => !node.hasAttribute(skipAttr));
+      if (target) {
+        target.setAttribute(skipAttr, '1');
+      }
+    },
+    {
+      lockedContainer: ENCRYPTED_DOM_SELECTORS.lockedContainer,
+      skipAttr: ENCRYPTED_SKIP_ATTR,
+    },
+  );
+}
+
+async function extractEncryptedBlockTexts(page) {
+  return await page.evaluate((contentSelector) => {
+    return Array.from(document.querySelectorAll(contentSelector))
+      .map((node) => (node.innerText || node.textContent || '').replace(/\u00a0/g, ' '))
+      .map((text) => text.replace(/\n{3,}/g, '\n\n').trim())
+      .filter((text) => text.length > 0);
+  }, ENCRYPTED_DOM_SELECTORS.content);
 }
 
 async function safeExtractArtifacts(page, docPlan, bookPlan, options = {}) {
@@ -783,6 +935,7 @@ async function safeExtractArtifacts(page, docPlan, bookPlan, options = {}) {
 
 export function mergeMarkdownWithArtifacts(markdown, artifacts, targetMdPath) {
   let output = markdown.trimEnd();
+  let positionedEncryptedInsertCount = 0;
 
   if (artifacts.tables.length > 0) {
     output += '\n\n## 导出的表格\n';
@@ -792,11 +945,17 @@ export function mergeMarkdownWithArtifacts(markdown, artifacts, targetMdPath) {
   }
 
   if (artifacts.encryptedTexts.length > 0) {
+    const positioned = injectEncryptedTextsIntoMarkdown(output, artifacts.encryptedTexts);
+    output = positioned.markdown;
+    positionedEncryptedInsertCount = positioned.insertedCount;
+  }
+
+  if (artifacts.encryptedTexts.length > positionedEncryptedInsertCount) {
     output += '\n\n## 加密文本块导出\n';
-    for (const blockText of artifacts.encryptedTexts) {
+    for (const blockText of artifacts.encryptedTexts.slice(positionedEncryptedInsertCount)) {
       output += `\n${toBlockQuote(blockText)}\n`;
     }
-  } else if (artifacts.encryptedState.detectedCount > 0) {
+  } else if (artifacts.encryptedTexts.length === 0 && artifacts.encryptedState.detectedCount > 0) {
     output += '\n\n## 加密文本块导出\n';
     if (artifacts.encryptedState.attempted && artifacts.encryptedState.remainingLockedCount === 0) {
       output += '\n> 已检测到加密文本块，但未能提取到稳定文本内容，已在下方保留页面快照。\n';
@@ -1079,6 +1238,11 @@ function buildBookEvent(bookContext, completed, totalDocuments, message) {
     book: bookContext.bookPlan.book.name,
     message,
     percent: percent(completed, totalDocuments),
+    completedDocuments: completed,
+    totalDocuments,
+    completedBooks: Math.max((bookContext.index ?? 1) - 1, 0),
+    totalBooks: bookContext.bookCount ?? 0,
+    currentBookIndex: bookContext.index ?? 1,
     bookPercent: percent(bookContext.completed, bookContext.total),
     bookCompleted: bookContext.completed,
     bookTotal: bookContext.total,
@@ -1096,6 +1260,11 @@ function buildDocEvent({ bookPlan, docPlan, completed, totalDocuments, bookCompl
     message: `${bookPlan.book.name} / ${docPlan.node.name}: ${message}`,
     error,
     percent: percent(completed, totalDocuments),
+    completedDocuments: completed,
+    totalDocuments,
+    completedBooks: Math.max((bookPlan.exportIndex ?? 1) - 1, 0),
+    totalBooks: bookPlan.exportCount ?? 0,
+    currentBookIndex: bookPlan.exportIndex ?? 1,
     bookPercent: percent(bookCompleted, bookTotal),
     bookCompleted,
     bookTotal,
@@ -1107,6 +1276,30 @@ function toBlockQuote(text) {
     .split(/\r?\n/)
     .map((line) => `> ${line || ' '}`)
     .join('\n');
+}
+
+function injectEncryptedTextsIntoMarkdown(markdown, encryptedTexts) {
+  if (!markdown || !Array.isArray(encryptedTexts) || encryptedTexts.length === 0) {
+    return { markdown, insertedCount: 0 };
+  }
+
+  let insertedCount = 0;
+  const replaced = markdown.replace(
+    /\[(此处为语雀卡片，点击链接查看)\]\((https?:\/\/(?:www\.)?yuque\.com\/docs\/\d+(?:#[^)]+)?)\)/g,
+    (match) => {
+      const blockText = encryptedTexts[insertedCount];
+      if (!blockText) {
+        return match;
+      }
+      insertedCount += 1;
+      return toBlockQuote(blockText);
+    },
+  );
+
+  return {
+    markdown: replaced,
+    insertedCount,
+  };
 }
 
 function dedupeTexts(values) {

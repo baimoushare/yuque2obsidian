@@ -117,8 +117,8 @@ body {
   gap: 18px;
   align-items: center;
   border-radius: var(--radius-lg);
-  min-height: 82px;
-  padding: 14px 20px;
+  min-height: 68px;
+  padding: 10px 18px;
   flex-shrink: 0;
 }
 
@@ -137,7 +137,7 @@ h2 {
 }
 
 h1 {
-  font-size: 24px;
+  font-size: 21px;
   line-height: 1.1;
 }
 
@@ -188,9 +188,9 @@ h1 {
   flex: 0 1 auto;
   min-width: 0;
   white-space: nowrap;
-  padding: 9px 12px;
-  font-size: 13px;
-  border-radius: 14px;
+  padding: 8px 11px;
+  font-size: 12px;
+  border-radius: 13px;
 }
 
 .grid {
@@ -206,7 +206,7 @@ h1 {
 .books-card,
 .logs-card {
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 20px 24px 22px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -695,7 +695,7 @@ button:disabled {
 .progress-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .progress-heading {
@@ -710,6 +710,12 @@ button:disabled {
 .progress-heading strong {
   color: var(--text-main);
   font-size: 14px;
+}
+
+.progress-stats {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .progress-track {
@@ -774,7 +780,7 @@ button:disabled {
 
   .hero {
     gap: 12px;
-    min-height: 78px;
+    min-height: 64px;
   }
 
   .hero-actions {
