@@ -25,6 +25,8 @@ $desktopSettingsFile = Join-Path $projectRoot 'desktop.settings.json'
 $entryScript = Join-Path $projectRoot 'desktop_app.py'
 $releaseCookieFile = Join-Path $releaseDir 'cookies.json'
 $releaseSettingsFile = Join-Path $releaseDir 'desktop.settings.json'
+$buildSucceeded = $false
+$finalExeValidated = $false
 $preserveReleaseNames = @(
   'output',
   'cookies.json',
@@ -134,6 +136,59 @@ function Remove-LegacyPackageArtifacts {
   }
 }
 
+function Test-PyInstallerArchive {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$PythonExe,
+    [Parameter(Mandatory = $true)]
+    [string]$ExecutablePath
+  )
+
+  if (-not (Test-Path $ExecutablePath)) {
+    return $false
+  }
+
+  & $PythonExe -m PyInstaller.utils.cliutils.archive_viewer $ExecutablePath -l *> $null
+  return $LASTEXITCODE -eq 0
+}
+
+function Publish-ValidatedExe {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceExe,
+    [Parameter(Mandatory = $true)]
+    [string]$DestinationExe,
+    [Parameter(Mandatory = $true)]
+    [string]$PythonExe
+  )
+
+  $stagePath = "$DestinationExe.new"
+
+  if (-not (Test-PyInstallerArchive -PythonExe $PythonExe -ExecutablePath $SourceExe)) {
+    throw "Built exe validation failed before publishing: $SourceExe"
+  }
+
+  if (Test-Path $stagePath) {
+    Remove-PathWithRetries -LiteralPath $stagePath
+  }
+
+  Move-Item -LiteralPath $SourceExe -Destination $stagePath -Force
+
+  if (-not (Test-PyInstallerArchive -PythonExe $PythonExe -ExecutablePath $stagePath)) {
+    throw "Published staging exe validation failed: $stagePath"
+  }
+
+  if (Test-Path $DestinationExe) {
+    Remove-PathWithRetries -LiteralPath $DestinationExe
+  }
+
+  Move-Item -LiteralPath $stagePath -Destination $DestinationExe -Force
+
+  if (-not (Test-PyInstallerArchive -PythonExe $PythonExe -ExecutablePath $DestinationExe)) {
+    throw "Final exe validation failed after publish: $DestinationExe"
+  }
+}
+
 Stop-OldPackagedProcesses -RootPath $projectRoot -ExecutableName $exeName
 
 if (Test-Path $tempRoot) {
@@ -180,7 +235,7 @@ try {
     throw "PyInstaller build failed."
   }
 
-  Copy-Item -LiteralPath (Join-Path $distDir $exeName) -Destination $finalExePath -Force
+  Publish-ValidatedExe -SourceExe (Join-Path $distDir $exeName) -DestinationExe $finalExePath -PythonExe $pythonExe
   if (-not (Test-Path $releaseCookieFile) -and (Test-Path $cookieFile)) {
     Copy-Item -LiteralPath $cookieFile -Destination $releaseCookieFile -Force
   }
@@ -188,13 +243,18 @@ try {
     Copy-Item -LiteralPath $desktopSettingsFile -Destination $releaseSettingsFile -Force
   }
   Remove-LegacyPackageArtifacts -RootPath $projectRoot
+  $finalExeValidated = $true
+  $buildSucceeded = $true
 
   Write-Host ""
   Write-Host "Build finished:"
   Write-Host $finalExePath
 }
 finally {
-  if (Test-Path $tempRoot) {
+  if ($buildSucceeded -and $finalExeValidated -and (Test-Path $tempRoot)) {
     Remove-PathWithRetries -LiteralPath $tempRoot
+  }
+  elseif (Test-Path $tempRoot) {
+    Write-Warning "Packaging temp directory was preserved for diagnosis: $tempRoot"
   }
 }

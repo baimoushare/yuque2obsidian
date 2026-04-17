@@ -17,6 +17,9 @@ test/*
 /release
 /tmp-test
 /.packaging-temp
+/.manual-packaging
+/.tmp-*/
+/.venv
 
 # misc
 .DS_Store
@@ -29,4 +32,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 __pycache__/
+*.pyc
 desktop.settings.json
+desktop-launch.log
