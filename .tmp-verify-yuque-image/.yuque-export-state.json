@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "meta": {
+    "createdAt": "2026-04-09T00:03:57.438Z",
+    "updatedAt": "2026-04-09T00:05:21.205Z",
+    "status": "success",
+    "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-yuque-image",
+    "selectedBooks": [
+      {
+        "id": 41212086,
+        "name": "技术笔记"
+      }
+    ],
+    "incrementalExport": false,
+    "lastRunStartedAt": "2026-04-09T00:03:57.532Z",
+    "lastRunFinishedAt": "2026-04-09T00:05:21.205Z"
+  },
+  "documents": {
+    "https://www.yuque.com/baimoushare/biji/3de2cc9c-ddeb-42da-bab4-28a06406cc44": {
+      "bookId": 41212086,
+      "bookName": "技术笔记",
+      "docName": "矢量图形坐标转换-wgs84与GCJ02互转",
+      "targetMdPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-yuque-image\\技术笔记\\工作流程\\高精地图项目制作总体流程\\坐标系\\矢量图形坐标转换-wgs84与GCJ02互转.md",
+      "yuquePath": "https://www.yuque.com/baimoushare/biji/3de2cc9c-ddeb-42da-bab4-28a06406cc44",
+      "updatedAt": "2026-04-09T00:03:57.534Z",
+      "status": "exported",
+      "exportedAt": "2026-04-09T00:05:21.203Z",
+      "outputPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-yuque-image\\技术笔记\\工作流程\\高精地图项目制作总体流程\\坐标系\\矢量图形坐标转换-wgs84与GCJ02互转.md",
+      "outputKind": "markdown",
+      "error": ""
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "meta": {
+    "createdAt": "2026-04-09T00:54:12.933Z",
+    "updatedAt": "2026-04-09T00:54:39.649Z",
+    "status": "success",
+    "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board",
+    "selectedBooks": [
+      {
+        "id": 25331238,
+        "name": "职业工作"
+      }
+    ],
+    "incrementalExport": false,
+    "lastRunStartedAt": "2026-04-09T00:54:12.955Z",
+    "lastRunFinishedAt": "2026-04-09T00:54:39.649Z"
+  },
+  "documents": {
+    "https://www.yuque.com/baimoushare/gongzuo/ytfy6r": {
+      "bookId": 25331238,
+      "bookName": "职业工作",
+      "docName": "项目效率统计表",
+      "targetMdPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作\\项目相关\\01.宁夏实景三维项目\\项目效率统计表.md",
+      "yuquePath": "https://www.yuque.com/baimoushare/gongzuo/ytfy6r",
+      "updatedAt": "2026-04-09T00:54:12.957Z",
+      "status": "exported",
+      "exportedAt": "2026-04-09T00:54:13.217Z",
+      "outputPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作\\项目相关\\01.宁夏实景三维项目\\项目效率统计表.md",
+      "outputKind": "markdown",
+      "error": ""
+    },
+    "https://www.yuque.com/baimoushare/gongzuo/pqb47y": {
+      "bookId": 25331238,
+      "bookName": "职业工作",
+      "docName": "时空信息新型基础测绘实景三维中国论坛丨会议纪要",
+      "targetMdPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作\\公司相关\\会议\\公司会议\\2022年\\2022年中会议收集资料\\时空信息新型基础测绘实景三维中国论坛丨会议纪要.md",
+      "yuquePath": "https://www.yuque.com/baimoushare/gongzuo/pqb47y",
+      "updatedAt": "2026-04-09T00:54:13.218Z",
+      "status": "exported",
+      "exportedAt": "2026-04-09T00:54:39.648Z",
+      "outputPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作\\公司相关\\会议\\公司会议\\2022年\\2022年中会议收集资料\\时空信息新型基础测绘实景三维中国论坛丨会议纪要.md",
+      "outputKind": "markdown",
+      "error": ""
+    }
+  }
+}

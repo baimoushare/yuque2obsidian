@@ -17,7 +17,8 @@ export class ExportStateStore {
 
   shouldSkip(docPlan) {
     const record = this.getRecord(docPlan.absoluteDocUrl);
-    return record?.status === 'exported' && fs.existsSync(docPlan.targetMdPath);
+    const outputPath = record?.outputPath || record?.targetMdPath || docPlan.targetMdPath;
+    return record?.status === 'exported' && Boolean(outputPath) && fs.existsSync(outputPath);
   }
 
   markQueued(docPlan) {
@@ -34,11 +35,14 @@ export class ExportStateStore {
     });
   }
 
-  markExported(docPlan) {
+  markExported(docPlan, options = {}) {
+    const outputPath = options.outputPath || docPlan.targetMdPath;
     this._upsert(docPlan, {
       status: 'exported',
       exportedAt: new Date().toISOString(),
       targetMdPath: docPlan.targetMdPath,
+      outputPath,
+      outputKind: options.outputKind || 'markdown',
       error: '',
     });
   }

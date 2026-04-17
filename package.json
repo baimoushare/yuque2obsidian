@@ -3,9 +3,11 @@
   "scripts": {
     "desktop": "py .\\desktop_app.py",
     "export": "node .\\main.js",
-    "test": "node --test"
+    "test": "node --test",
+    "build:exe": "powershell -ExecutionPolicy Bypass -File .\\build_windows_exe.ps1"
   },
   "dependencies": {
+    "@steipete/sweet-cookie": "^0.2.0",
     "axios": "^1.4.0",
     "esm": "^3.2.25",
     "jsonstream": "^1.0.3",

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "meta": {
+    "createdAt": "2026-04-06T23:59:40.571Z",
+    "updatedAt": "2026-04-06T23:59:40.849Z",
+    "status": "success",
+    "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check",
+    "selectedBooks": [
+      {
+        "id": 41578453,
+        "name": "阅读笔记"
+      }
+    ],
+    "incrementalExport": false,
+    "lastRunStartedAt": "2026-04-06T23:59:40.576Z",
+    "lastRunFinishedAt": "2026-04-06T23:59:40.849Z"
+  },
+  "documents": {
+    "https://www.yuque.com/baimoushare/zy597v/pubhayhpz0mhrc7e": {
+      "bookId": 41578453,
+      "bookName": "阅读笔记",
+      "docName": "《读书笔记模板》",
+      "targetMdPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\阅读笔记\\《读书笔记模板》.md",
+      "yuquePath": "https://www.yuque.com/baimoushare/zy597v/pubhayhpz0mhrc7e",
+      "updatedAt": "2026-04-06T23:59:40.577Z",
+      "status": "exported",
+      "lastAction": "skipped",
+      "skippedAt": "2026-04-06T23:59:40.847Z"
+    }
+  }
+}

@@ -10,20 +10,44 @@
   currentJobKind: '',
   pollTimer: null,
   loginUser: null,
+  loginWasAlreadyAuthenticated: false,
   lastExportConfig: null,
+  currentExportSource: '',
   lastSelectedBookId: null,
   systemLogs: [],
   lastStatusMessage: '',
+  lastSelectionSummary: { totalBooks: 0, totalDocuments: 0 },
+  hasAutoScrolledToLogs: false,
+  lastProgressSnapshot: {
+    completedBooks: 0,
+    totalBooks: 0,
+    completedDocuments: 0,
+    totalDocuments: 0,
+    bookCompleted: 0,
+    bookTotal: 0,
+    currentBook: '',
+    currentDoc: '',
+  },
 };
 
 const $ = (selector) => document.querySelector(selector);
 
 const elements = {
+  configCard: $('.config-card'),
   browserPath: $('#browser-path'),
   cookiePath: $('#cookie-path'),
   outputDir: $('#output-dir'),
+  failureCsvPath: $('#failure-csv-path'),
+  obsidianVaultPath: $('#obsidian-vault-path'),
+  obsidianSetupMode: $('#obsidian-setup-mode'),
+  vaultExportLayout: $('#vault-export-layout'),
+  vaultExportSubdir: $('#vault-export-subdir'),
   encryptedPasswords: $('#encrypted-passwords'),
   togglePasswordsBtn: $('#toggle-passwords-btn'),
+  reencryptEncryptedBlocksMode: $('#reencrypt-encrypted-blocks-mode'),
+  reencryptGlobalPasswordField: $('#reencrypt-global-password-field'),
+  reencryptGlobalPassword: $('#reencrypt-global-password'),
+  toggleReencryptPasswordBtn: $('#toggle-reencrypt-password-btn'),
   downloadImages: $('#download-images'),
   downloadAttachments: $('#download-attachments'),
   incrementalExport: $('#incremental-export'),
@@ -35,6 +59,7 @@ const elements = {
   bookProgressBar: $('#book-progress-bar'),
   bookProgressText: $('#book-progress-text'),
   bookProgressStats: $('#book-progress-stats'),
+  logsCard: $('.logs-card'),
   logs: $('#logs'),
   loginBtn: $('#login-btn'),
   scanBtn: $('#scan-btn'),
@@ -42,9 +67,13 @@ const elements = {
   stopBtn: $('#stop-btn'),
   saveSettingsBtn: $('#save-settings-btn'),
   chooseOutputBtn: $('#choose-output-btn'),
+  chooseFailureCsvBtn: $('#choose-failure-csv-btn'),
+  retryFailuresBtn: $('#retry-failures-btn'),
+  chooseVaultBtn: $('#choose-vault-btn'),
   openOutputBtn: $('#open-output-btn'),
-  expandAllBtn: $('#expand-all-btn'),
-  collapseAllBtn: $('#collapse-all-btn'),
+  treeFoldToggleBtn: $('#tree-fold-toggle-btn'),
+  treeFoldExpandIcon: $('#tree-fold-icon-expand'),
+  treeFoldCollapseIcon: $('#tree-fold-icon-collapse'),
   accountBadge: $('#account-badge'),
   accountText: $('#account-text'),
 };
@@ -62,7 +91,7 @@ async function bootstrap() {
 }
 
 function waitForPywebview(timeoutMs = 15000) {
-  if (window.pywebview?.api) {
+  if (isPywebviewReady()) {
     return Promise.resolve();
   }
 
@@ -80,7 +109,7 @@ function waitForPywebview(timeoutMs = 15000) {
     };
 
     const interval = setInterval(() => {
-      if (window.pywebview?.api) {
+      if (isPywebviewReady()) {
         cleanup();
         resolve();
         return;
@@ -96,6 +125,10 @@ function waitForPywebview(timeoutMs = 15000) {
   });
 }
 
+function isPywebviewReady() {
+  return typeof window.pywebview?.api?.loadSettings === 'function';
+}
+
 async function init() {
   const settings = await window.pywebview.api.loadSettings();
   state.settings = settings;
@@ -107,6 +140,7 @@ async function init() {
     await autoScanBooksOnLaunch();
   }
   syncControls();
+  syncTreeFoldToggleButton();
   if (!state.loginUser) {
     renderStatus('桌面端已就绪');
   }
@@ -115,15 +149,21 @@ async function init() {
 function wireEvents() {
   elements.saveSettingsBtn.addEventListener('click', saveSettings);
   elements.chooseOutputBtn.addEventListener('click', chooseOutputDir);
+  elements.chooseFailureCsvBtn.addEventListener('click', chooseFailureCsv);
+  elements.retryFailuresBtn.addEventListener('click', onRetryFailuresButtonClick);
+  elements.chooseVaultBtn.addEventListener('click', chooseVaultDir);
   elements.loginBtn.addEventListener('click', startLogin);
   elements.scanBtn.addEventListener('click', scanBooks);
   elements.exportBtn.addEventListener('click', onExportButtonClick);
   elements.stopBtn.addEventListener('click', stopExport);
-  elements.expandAllBtn.addEventListener('click', expandAllTrees);
-  elements.collapseAllBtn.addEventListener('click', collapseAllTrees);
+  elements.treeFoldToggleBtn.addEventListener('click', toggleTreeFoldState);
   elements.togglePasswordsBtn.addEventListener('click', togglePasswordVisibility);
+  elements.encryptedPasswords.addEventListener('input', syncEncryptedPasswordsHeight);
+  elements.toggleReencryptPasswordBtn.addEventListener('click', toggleReencryptPasswordVisibility);
+  elements.reencryptEncryptedBlocksMode.addEventListener('change', syncReencryptControls);
+  elements.vaultExportLayout.addEventListener('change', syncVaultExportControls);
   elements.openOutputBtn.addEventListener('click', () => {
-    const outputDir = elements.outputDir.value.trim();
+    const outputDir = state.currentOutputDir || elements.outputDir.value.trim();
     if (outputDir) {
       window.pywebview.api.openOutputDir(outputDir);
     }
@@ -134,11 +174,21 @@ function fillSettings(settings) {
   elements.browserPath.value = settings.browserPath || '';
   elements.cookiePath.value = settings.cookiePath || '';
   elements.outputDir.value = settings.outputDir || '';
+  elements.failureCsvPath.value = settings.failureCsvPath || '';
+  elements.obsidianVaultPath.value = settings.obsidianVaultPath || '';
+  elements.obsidianSetupMode.value = settings.obsidianSetupMode || 'none';
+  elements.vaultExportLayout.value = settings.vaultExportLayout || 'output-only';
+  elements.vaultExportSubdir.value = settings.vaultExportSubdir || '';
   elements.encryptedPasswords.value = normalizePasswordList(settings.encryptedBlockPasswords, settings.encryptedBlockPassword);
+  elements.reencryptEncryptedBlocksMode.value = settings.reencryptEncryptedBlocksMode || 'off';
+  elements.reencryptGlobalPassword.value = settings.reencryptGlobalPassword || '';
   elements.downloadImages.checked = settings.downloadImages !== false;
   elements.downloadAttachments.checked = settings.downloadAttachments !== false;
   elements.incrementalExport.checked = settings.incrementalExport !== false;
   state.currentOutputDir = settings.outputDir || '';
+  syncEncryptedPasswordsHeight();
+  syncReencryptControls();
+  syncVaultExportControls();
 }
 
 function readSettings() {
@@ -147,12 +197,20 @@ function readSettings() {
     browserPath: elements.browserPath.value.trim(),
     cookiePath: elements.cookiePath.value.trim(),
     outputDir: elements.outputDir.value.trim(),
+    failureCsvPath: elements.failureCsvPath.value.trim(),
+    obsidianVaultPath: elements.obsidianVaultPath.value.trim(),
+    obsidianSetupMode: elements.obsidianSetupMode.value,
+    vaultExportLayout: elements.vaultExportLayout.value,
+    vaultExportSubdir: elements.vaultExportSubdir.value.trim(),
     encryptedBlockPasswords,
     encryptedBlockPassword: encryptedBlockPasswords[0] || '',
+    reencryptEncryptedBlocksMode: elements.reencryptEncryptedBlocksMode.value,
+    reencryptGlobalPassword: elements.reencryptGlobalPassword.value,
     downloadImages: elements.downloadImages.checked,
     downloadAttachments: elements.downloadAttachments.checked,
     incrementalExport: elements.incrementalExport.checked,
-    complexBlockMode: 'snapshot-first',
+    datatableExportMode: 'structured-first',
+    complexBlockMode: 'auto',
     assetLayout: 'book_assets',
   };
 }
@@ -166,10 +224,24 @@ async function saveSettings() {
 }
 
 async function chooseOutputDir() {
-  const selected = await window.pywebview.api.chooseOutputDir();
+  const selected = await window.pywebview.api.chooseOutputDir(elements.outputDir.value.trim());
   if (selected) {
     elements.outputDir.value = selected;
     state.currentOutputDir = selected;
+  }
+}
+
+async function chooseFailureCsv() {
+  const selected = await window.pywebview.api.chooseFailureCsv(elements.failureCsvPath.value.trim());
+  if (selected) {
+    elements.failureCsvPath.value = selected;
+  }
+}
+
+async function chooseVaultDir() {
+  const selected = await window.pywebview.api.chooseVaultDir(elements.obsidianVaultPath.value.trim());
+  if (selected) {
+    elements.obsidianVaultPath.value = selected;
   }
 }
 
@@ -190,12 +262,16 @@ function renderAccount() {
     elements.accountText.textContent = `已登录: ${name}${login}`;
     elements.accountBadge.classList.add('logged-in');
     elements.loginBtn.textContent = '切换账号';
+    elements.loginBtn.classList.remove('primary');
+    elements.loginBtn.classList.add('secondary', 'login-switch-btn');
     return;
   }
 
   elements.accountText.textContent = '未检测到登录状态';
   elements.accountBadge.classList.remove('logged-in');
   elements.loginBtn.textContent = '登录语雀';
+  elements.loginBtn.classList.add('primary');
+  elements.loginBtn.classList.remove('secondary', 'login-switch-btn');
 }
 
 function togglePasswordVisibility() {
@@ -205,8 +281,73 @@ function togglePasswordVisibility() {
   elements.togglePasswordsBtn.setAttribute('aria-label', masked ? '显示密码' : '隐藏密码');
 }
 
+function syncEncryptedPasswordsHeight() {
+  const textarea = elements.encryptedPasswords;
+  if (!textarea) {
+    return;
+  }
+
+  const styles = window.getComputedStyle(textarea);
+  const lineHeight = parseFloat(styles.lineHeight) || 24;
+  const paddingTop = parseFloat(styles.paddingTop) || 0;
+  const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+  const borderTop = parseFloat(styles.borderTopWidth) || 0;
+  const borderBottom = parseFloat(styles.borderBottomWidth) || 0;
+  const verticalChrome = paddingTop + paddingBottom + borderTop + borderBottom;
+  const minHeight = lineHeight * 3 + verticalChrome;
+  const maxHeight = lineHeight * 6 + verticalChrome;
+
+  textarea.style.height = 'auto';
+  const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+}
+
+function toggleReencryptPasswordVisibility() {
+  const visible = elements.reencryptGlobalPassword.type === 'text';
+  elements.reencryptGlobalPassword.type = visible ? 'password' : 'text';
+  elements.toggleReencryptPasswordBtn.classList.toggle('active', !visible);
+  elements.toggleReencryptPasswordBtn.title = visible ? '显示或隐藏重加密密码' : '隐藏重加密密码';
+  elements.toggleReencryptPasswordBtn.setAttribute('aria-label', visible ? '显示重加密密码' : '隐藏重加密密码');
+}
+
+function syncReencryptControls() {
+  const mode = elements.reencryptEncryptedBlocksMode.value || 'off';
+  const enableGlobalPassword = mode === 'global';
+  if (elements.reencryptGlobalPasswordField) {
+    elements.reencryptGlobalPasswordField.hidden = false;
+    elements.reencryptGlobalPasswordField.classList.toggle('is-disabled', !enableGlobalPassword);
+  }
+  elements.reencryptGlobalPassword.disabled = !enableGlobalPassword;
+  elements.toggleReencryptPasswordBtn.disabled = !enableGlobalPassword;
+  if (!enableGlobalPassword) {
+    elements.reencryptGlobalPassword.type = 'password';
+    elements.toggleReencryptPasswordBtn.classList.remove('active');
+    elements.toggleReencryptPasswordBtn.title = '显示或隐藏重加密密码';
+    elements.toggleReencryptPasswordBtn.setAttribute('aria-label', '显示重加密密码');
+  }
+}
+
+function syncVaultExportControls() {
+  const outputOnly = (elements.vaultExportLayout.value || 'output-only') === 'output-only';
+  const mainField = elements.obsidianVaultPath.closest('.path-pair-main');
+  const subField = elements.vaultExportSubdir.closest('.path-pair-sub');
+
+  elements.obsidianVaultPath.disabled = outputOnly;
+  elements.chooseVaultBtn.disabled = outputOnly;
+  elements.vaultExportSubdir.disabled = outputOnly;
+
+  if (mainField) {
+    mainField.classList.toggle('is-disabled', outputOnly);
+  }
+  if (subField) {
+    subField.classList.toggle('is-disabled', outputOnly);
+  }
+}
+
 async function startLogin() {
   await saveSettings();
+  state.loginWasAlreadyAuthenticated = Boolean(state.loginUser);
   const { jobId } = await window.pywebview.api.startLogin(readSettings());
   state.currentJobId = jobId;
   state.currentJobKind = 'login';
@@ -244,6 +385,21 @@ async function autoScanBooksOnLaunch() {
   }
 }
 
+async function autoScanBooksAfterFirstLogin() {
+  try {
+    renderStatus('登录完成，正在自动扫描知识库...');
+    const books = await window.pywebview.api.scanBooks(readSettings());
+    state.books = books;
+    state.selectedBooks = new Set(books.map((book) => String(book.id)));
+    state.selectedDocuments = new Set();
+    state.expandedNodes = collectDefaultExpandedNodes(books);
+    renderBooks();
+    renderStatus(`首次登录成功，已自动扫描 ${books.length} 个知识库`);
+  } catch (error) {
+    renderStatus(`登录完成，但自动扫描知识库失败: ${error.message}`);
+  }
+}
+
 async function onExportButtonClick() {
   if (state.currentJobKind === 'export' && state.currentJobStatus === 'running') {
     await pauseExport();
@@ -255,6 +411,29 @@ async function onExportButtonClick() {
   }
 
   await startExport();
+}
+
+async function onRetryFailuresButtonClick() {
+  const retryRunning = state.currentExportSource === 'retry' && state.currentJobKind === 'export' && state.currentJobStatus === 'running';
+  const retryPausing =
+    state.currentExportSource === 'retry' && state.currentJobKind === 'export' && ['pausing', 'stopping'].includes(state.currentJobStatus);
+  const retryPaused = state.currentExportSource === 'retry' && state.currentJobKind === 'export' && state.currentJobStatus === 'paused';
+
+  if (retryRunning) {
+    await pauseExport();
+    return;
+  }
+
+  if (retryPausing) {
+    return;
+  }
+
+  if (retryPaused) {
+    await startRetryExportFromFailureCsv();
+    return;
+  }
+
+  await startRetryExportFromFailureCsv();
 }
 
 async function startExport() {
@@ -276,10 +455,22 @@ async function startExport() {
   };
 
   state.lastExportConfig = config;
+  state.lastSelectionSummary = summarizeSelection(config);
+  state.lastProgressSnapshot = {
+    completedBooks: 0,
+    totalBooks: state.lastSelectionSummary.totalBooks,
+    completedDocuments: 0,
+    totalDocuments: state.lastSelectionSummary.totalDocuments,
+    bookCompleted: 0,
+    bookTotal: 0,
+    currentBook: '',
+    currentDoc: '',
+  };
   const { jobId } = await window.pywebview.api.startExport(config);
   state.currentJobId = jobId;
   state.currentJobKind = 'export';
   state.currentJobStatus = 'running';
+  state.currentExportSource = 'standard';
   state.currentOutputDir = config.outputDir;
   syncControls();
   renderStatus(
@@ -288,10 +479,76 @@ async function startExport() {
       : `全量导出任务已启动，将导出当前选择的 ${config.selectedBooks.length} 个知识库。`,
   );
   renderLogs([`导出任务已启动，将处理 ${config.selectedBooks.length} 个知识库。`]);
-  const selectionSummary = summarizeSelection(config);
+  const selectionSummary = state.lastSelectionSummary;
   setProgress(0, '准备导出...', `0% · 知识库 0/${selectionSummary.totalBooks} · 文档 0/${selectionSummary.totalDocuments}`);
   setBookProgress(0, '等待知识库任务...', '0% · 文档 0/0');
+  maybeScrollTaskLogsIntoView();
   pollJob(jobId);
+}
+
+async function startRetryExportFromFailureCsv() {
+  const failureCsvPath = elements.failureCsvPath.value.trim();
+  if (!failureCsvPath) {
+    renderStatus('请先选择失败日志 CSV。');
+    return;
+  }
+
+  await saveSettings();
+  const retryConfig = {
+    ...readSettings(),
+    failureCsvPath,
+  };
+  const result = await window.pywebview.api.startRetryExportFromFailureCsv(retryConfig);
+
+  state.currentJobId = result.jobId;
+  state.currentJobKind = 'export';
+  state.currentJobStatus = 'running';
+  state.currentExportSource = 'retry';
+  state.currentOutputDir = result.outputDir || retryConfig.outputDir;
+  state.lastExportConfig = {
+    ...retryConfig,
+    outputDir: state.currentOutputDir,
+    selectedBooks: result.selectedBooks || [],
+    fullySelectedBooks: [],
+    selectedDocuments: result.selectedDocuments || [],
+    incrementalExport: false,
+  };
+  state.lastSelectionSummary = {
+    totalBooks: result.bookCount || 0,
+    totalDocuments: result.documentCount || 0,
+  };
+  state.lastProgressSnapshot = {
+    completedBooks: 0,
+    totalBooks: state.lastSelectionSummary.totalBooks,
+    completedDocuments: 0,
+    totalDocuments: state.lastSelectionSummary.totalDocuments,
+    bookCompleted: 0,
+    bookTotal: 0,
+    currentBook: '',
+    currentDoc: '',
+  };
+
+  if (state.currentOutputDir) {
+    elements.outputDir.value = state.currentOutputDir;
+  }
+
+  syncControls();
+
+  const unmatchedCount = Array.isArray(result.unmatchedDocuments) ? result.unmatchedDocuments.length : 0;
+  renderStatus(`失败文档重导任务已启动，将覆盖重导 ${result.documentCount || 0} 篇文档。`);
+  renderLogs([
+    `已从失败日志读取 ${result.rowCount || 0} 条记录，去重后匹配到 ${result.documentCount || 0} 篇文档。`,
+    `本次已自动关闭增量导出，并使用失败日志所在目录作为输出目录：${state.currentOutputDir}`,
+    unmatchedCount > 0 ? `有 ${unmatchedCount} 篇文档当前未在可访问知识库中找到，已暂时跳过。` : '失败日志中的可匹配文档都已加入本次重导任务。',
+  ]);
+  setProgress(
+    0,
+    '准备重新导出...',
+    `0% · 知识库 0/${state.lastSelectionSummary.totalBooks} · 文档 0/${state.lastSelectionSummary.totalDocuments}`,
+  );
+  setBookProgress(0, '等待知识库任务...', '0% · 文档 0/0');
+  maybeScrollTaskLogsIntoView();
+  pollJob(result.jobId);
 }
 
 async function pauseExport() {
@@ -319,6 +576,8 @@ function renderBooks() {
     elements.booksList.className = 'books-list empty-state';
     elements.booksList.textContent = '没有可导出的知识库。';
     elements.bookCount.textContent = '0 个知识库 / 0 篇文档';
+    syncTreeFoldToggleButton();
+    syncControls();
     return;
   }
 
@@ -345,6 +604,8 @@ function renderBooks() {
   }
 
   elements.booksList.appendChild(tree);
+  syncTreeFoldToggleButton();
+  syncControls();
 }
 
 function renderTreeNode(node, meta) {
@@ -559,6 +820,14 @@ function toggleNode(nodeId) {
   renderBooks();
 }
 
+function toggleTreeFoldState() {
+  if (isTreeFullyExpanded()) {
+    collapseAllTrees();
+    return;
+  }
+  expandAllTrees();
+}
+
 function expandAllTrees() {
   const all = new Set();
   state.books.forEach((book) => collectAllNodeIds(book.root, String(book.id), [], all));
@@ -573,6 +842,41 @@ function collapseAllTrees() {
 
 function collectDefaultExpandedNodes(books) {
   return new Set();
+}
+
+function isTreeFullyExpanded() {
+  const allNodeIds = collectAllTreeNodeIds();
+  if (allNodeIds.size === 0) {
+    return false;
+  }
+  for (const nodeId of allNodeIds) {
+    if (!state.expandedNodes.has(nodeId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function collectAllTreeNodeIds() {
+  const all = new Set();
+  state.books.forEach((book) => collectAllNodeIds(book.root, String(book.id), [], all));
+  return all;
+}
+
+function syncTreeFoldToggleButton() {
+  const hasBooks = state.books.length > 0;
+  elements.treeFoldToggleBtn.disabled = !hasBooks;
+
+  const isExpanded = hasBooks && isTreeFullyExpanded();
+  elements.treeFoldToggleBtn.dataset.mode = isExpanded ? 'expanded' : 'collapsed';
+  elements.treeFoldToggleBtn.title = isExpanded ? '当前已展开，点击全部折叠' : '当前已折叠，点击全部展开';
+  elements.treeFoldToggleBtn.setAttribute(
+    'aria-label',
+    isExpanded ? '当前已展开，点击全部折叠' : '当前已折叠，点击全部展开',
+  );
+
+  elements.treeFoldExpandIcon.hidden = !isExpanded;
+  elements.treeFoldCollapseIcon.hidden = isExpanded;
 }
 
 function collectAllNodeIds(node, bookId, path, output) {
@@ -687,28 +991,46 @@ function pollJob(jobId) {
 
     if (job.status === 'success') {
       clearPollTimer();
+      finalizeJobState(job);
       if (job.kind === 'login') {
         await refreshLoginStatus();
-        renderStatus('登录完成');
+        const shouldAutoScanAfterFirstLogin = !state.loginWasAlreadyAuthenticated && Boolean(state.loginUser);
+        state.loginWasAlreadyAuthenticated = Boolean(state.loginUser);
+        if (shouldAutoScanAfterFirstLogin) {
+          await autoScanBooksAfterFirstLogin();
+        } else {
+          renderStatus('登录完成');
+        }
       } else {
-        renderStatus('任务完成');
+        renderStatus('导出完成');
       }
       const result = job.result || {};
+      state.currentOutputDir = result.contentOutputDir || result.outputDir || state.currentOutputDir;
       if (result.failureCsv) {
         renderLogs([...(job.logs || []), `失败 CSV: ${result.failureCsv}`]);
       }
       if (job.kind === 'export') {
-        setProgress(100, '任务完成');
+        applyCompletedExportProgress(result);
       }
     } else if (job.status === 'paused') {
       clearPollTimer();
+      finalizeJobState(job);
       state.currentJobKind = 'export';
       renderStatus('导出已暂停，可随时继续。');
     } else if (job.status === 'error' || job.status === 'cancelled') {
       clearPollTimer();
+      finalizeJobState(job);
       renderStatus(job.error || (job.status === 'cancelled' ? '任务已停止' : '任务失败'));
     }
   }, 900);
+}
+
+function finalizeJobState(job) {
+  state.currentJobId = null;
+  state.currentJobStatus = job?.status || 'idle';
+  state.currentJobKind = job?.status === 'paused' ? 'export' : '';
+  state.currentExportSource = job?.status === 'paused' ? state.currentExportSource : '';
+  syncControls();
 }
 
 function syncProgress(job) {
@@ -719,28 +1041,57 @@ function syncProgress(job) {
 
   const currentBook = latestProgress.book || '';
   const currentDoc = latestProgress.doc || '';
-  const selectionSummary = summarizeSelection(state.lastExportConfig);
+  const selectionSummary =
+    state.lastSelectionSummary.totalBooks > 0 || state.lastSelectionSummary.totalDocuments > 0
+      ? state.lastSelectionSummary
+      : summarizeSelection(state.lastExportConfig);
   const overallPercent = latestProgress.percent ?? 0;
-  const completedBooks = latestProgress.completedBooks ?? 0;
-  const totalBooks = latestProgress.totalBooks ?? selectionSummary.totalBooks;
-  const completedDocuments = latestProgress.completedDocuments ?? 0;
-  const totalDocuments = latestProgress.totalDocuments ?? selectionSummary.totalDocuments;
+  const completedBooks = latestProgress.completedBooks ?? state.lastProgressSnapshot.completedBooks ?? 0;
+  const totalBooks = latestProgress.totalBooks ?? state.lastProgressSnapshot.totalBooks ?? selectionSummary.totalBooks;
+  const completedDocuments = latestProgress.completedDocuments ?? state.lastProgressSnapshot.completedDocuments ?? 0;
+  const totalDocuments =
+    latestProgress.totalDocuments ?? state.lastProgressSnapshot.totalDocuments ?? selectionSummary.totalDocuments;
   const overallText = currentBook
     ? `当前知识库：${currentBook}`
-    : latestProgress.message || '处理中...';
+    : localizeProgressMessage(latestProgress.message || '处理中...');
   const overallStats = `${formatPercent(overallPercent)} · 知识库 ${completedBooks}/${totalBooks || 0} · 文档 ${completedDocuments}/${totalDocuments || 0}`;
   setProgress(overallPercent, overallText, overallStats);
 
-  const bookCompleted = latestProgress.bookCompleted ?? 0;
-  const bookTotal = latestProgress.bookTotal ?? 0;
+  const bookCompleted = latestProgress.bookCompleted ?? state.lastProgressSnapshot.bookCompleted ?? 0;
+  const bookTotal = latestProgress.bookTotal ?? state.lastProgressSnapshot.bookTotal ?? 0;
   const bookPercent = latestProgress.bookPercent ?? 0;
   const bookText = currentDoc
     ? `当前笔记：${currentDoc}`
     : currentBook
       ? `${currentBook} ${bookCompleted}/${bookTotal || 0}`
-      : latestProgress.message || '暂无任务';
+      : localizeProgressMessage(latestProgress.message || '暂无任务');
   const bookStats = `${formatPercent(bookPercent)} · 文档 ${bookCompleted}/${bookTotal || 0}`;
   setBookProgress(bookPercent, bookText, bookStats);
+
+  state.lastProgressSnapshot = {
+    completedBooks,
+    totalBooks,
+    completedDocuments,
+    totalDocuments,
+    bookCompleted,
+    bookTotal,
+    currentBook,
+    currentDoc,
+  };
+}
+
+function maybeScrollTaskLogsIntoView() {
+  if (state.hasAutoScrolledToLogs || !elements.logsCard) {
+    return;
+  }
+
+  state.hasAutoScrolledToLogs = true;
+  requestAnimationFrame(() => {
+    elements.logsCard.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  });
 }
 
 function renderStatus(message) {
@@ -777,15 +1128,96 @@ function setBookProgress(value, text, statsText = '') {
   }
 }
 
+function applyCompletedExportProgress(result = {}) {
+  const totals = result.totals || {};
+  const totalBooks = Number(totals.books ?? state.lastProgressSnapshot.totalBooks ?? state.lastSelectionSummary.totalBooks ?? 0);
+  const totalDocuments = Number(
+    totals.documents ?? state.lastProgressSnapshot.totalDocuments ?? state.lastSelectionSummary.totalDocuments ?? 0,
+  );
+
+  state.lastProgressSnapshot = {
+    completedBooks: totalBooks,
+    totalBooks,
+    completedDocuments: totalDocuments,
+    totalDocuments,
+    bookCompleted: totalDocuments,
+    bookTotal: totalDocuments,
+    currentBook: '',
+    currentDoc: '',
+  };
+
+  setProgress(100, '任务完成', `100% · 知识库 ${totalBooks}/${totalBooks} · 文档 ${totalDocuments}/${totalDocuments}`);
+  setBookProgress(100, '全部内容已完成', `100% · 文档 ${totalDocuments}/${totalDocuments}`);
+}
+
+function localizeProgressMessage(message) {
+  const value = String(message || '').trim();
+  if (!value) {
+    return '';
+  }
+
+  const replacements = [
+    ['Finalizing Obsidian setup...', '正在完成 Obsidian 配置...'],
+    ['Obsidian setup finished', 'Obsidian 配置已完成'],
+    ['Obsidian setup was skipped', '已跳过 Obsidian 配置'],
+    ['Loading Yuque book list...', '正在加载语雀知识库列表...'],
+  ];
+
+  let localized = value;
+  for (const [source, target] of replacements) {
+    localized = localized.replace(source, target);
+  }
+  return localized;
+}
+
+function setButtonTone(button, tone) {
+  button.classList.remove('primary', 'secondary', 'ghost');
+  button.classList.add(tone);
+}
+
+function syncRetryFailuresButton(exportRunning, exportPaused) {
+  const retryRunning = state.currentExportSource === 'retry' && exportRunning;
+  const retryPaused = state.currentExportSource === 'retry' && exportPaused;
+  const retryBusy =
+    state.currentExportSource === 'retry' && state.currentJobKind === 'export' && ['pausing', 'stopping'].includes(state.currentJobStatus);
+  const iconPath = retryRunning
+    ? 'M6 5h4v14H6zM14 5h4v14h-4z'
+    : 'M8 5.5v13l10-6.5-10-6.5Z';
+  const title = retryRunning
+    ? '暂停按失败日志重导并覆盖'
+    : retryPaused
+      ? '继续按失败日志重导并覆盖'
+      : retryBusy
+        ? state.currentJobStatus === 'stopping'
+          ? '停止中...'
+          : '暂停中...'
+        : '开始按失败日志重导并覆盖';
+
+  elements.retryFailuresBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${iconPath}"></path></svg>`;
+  elements.retryFailuresBtn.title = title;
+  elements.retryFailuresBtn.setAttribute('aria-label', title);
+}
+
 function syncControls() {
   const exportRunning =
     state.currentJobKind === 'export' && ['running', 'pausing', 'stopping'].includes(state.currentJobStatus);
   const exportPaused = state.currentJobKind === 'export' && state.currentJobStatus === 'paused';
   const anyJobRunning = ['running', 'pausing', 'stopping'].includes(state.currentJobStatus);
+  const exportBusy = exportRunning || exportPaused;
+  const retryRunning = state.currentExportSource === 'retry' && state.currentJobKind === 'export' && state.currentJobStatus === 'running';
+  const retryPaused = state.currentExportSource === 'retry' && exportPaused;
+  const retryBusy =
+    state.currentExportSource === 'retry' && state.currentJobKind === 'export' && ['pausing', 'stopping'].includes(state.currentJobStatus);
+  const hasBooks = state.books.length > 0;
 
   elements.loginBtn.disabled = anyJobRunning;
   elements.scanBtn.disabled = anyJobRunning;
+  elements.chooseFailureCsvBtn.disabled = anyJobRunning;
+  elements.retryFailuresBtn.disabled = retryBusy || (!retryRunning && !retryPaused && exportBusy);
   elements.stopBtn.disabled = !exportRunning || state.currentJobStatus === 'stopping';
+
+  setButtonTone(elements.exportBtn, hasBooks ? 'primary' : 'secondary');
+  syncRetryFailuresButton(exportRunning, exportPaused);
 
   if (exportRunning) {
     if (state.currentJobStatus === 'pausing') {
@@ -931,19 +1363,8 @@ function describeSelection(selection) {
 }
 
 function setupTransientShellScrollbar() {
-  let timer = null;
-
-  const showScrollbar = () => {
-    document.documentElement.classList.add('show-shell-scrollbar');
-    document.body.classList.add('show-shell-scrollbar');
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      document.documentElement.classList.remove('show-shell-scrollbar');
-      document.body.classList.remove('show-shell-scrollbar');
-    }, 900);
-  };
-
-  window.addEventListener('wheel', showScrollbar, { passive: true });
-  window.addEventListener('scroll', showScrollbar, { passive: true });
+  document.documentElement.classList.add('show-shell-scrollbar');
+  document.body.classList.add('show-shell-scrollbar');
 }
+
 

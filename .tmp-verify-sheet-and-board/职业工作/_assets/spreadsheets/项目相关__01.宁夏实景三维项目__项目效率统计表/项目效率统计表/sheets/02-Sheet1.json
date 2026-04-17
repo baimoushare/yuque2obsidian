@@ -1,0 +1,598 @@
+{
+  "index": 1,
+  "name": "Sheet1",
+  "id": "ysmI",
+  "totalRowCount": 200,
+  "totalColCount": 25,
+  "usedRowCount": 8,
+  "usedColCount": 8,
+  "mergeCellCount": 1,
+  "grid": [
+    [
+      "宁夏项目平均效率统计表",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "",
+      "时间:天",
+      "工作量:km²",
+      "固安工作量:km²",
+      "人数",
+      "公司日平均效率:km²",
+      "固安平均效率:km²",
+      "固安每人日平均效率:km²"
+    ],
+    [
+      "第一批",
+      "40",
+      "2.7",
+      "0.91",
+      "12",
+      "0.0675",
+      "0.02275",
+      "0.0018958333333333334"
+    ],
+    [
+      "第二批",
+      "50",
+      "13",
+      "5.27",
+      "6",
+      "0.26",
+      "0.1054",
+      "0.017566666666666668"
+    ],
+    [
+      "第三批",
+      "30",
+      "9.1",
+      "2.4",
+      "6",
+      "0.30333333333333334",
+      "0.08",
+      "0.013333333333333334"
+    ],
+    [
+      "第四批",
+      "18",
+      "9.8",
+      "5.1",
+      "6",
+      "0.5444444444444444",
+      "0.2833333333333333",
+      "0.047222222222222214"
+    ],
+    [
+      "第五批",
+      "30",
+      "18.69",
+      "12.62",
+      "6",
+      "0.623",
+      "0.4206666666666667",
+      "0.07011111111111111"
+    ],
+    [
+      "",
+      "30",
+      "18.69",
+      "15.3",
+      "6",
+      "0.623",
+      "0.51",
+      "0.085"
+    ]
+  ],
+  "rows": [
+    {
+      "index": 0,
+      "cells": [
+        {
+          "rowIndex": 0,
+          "colIndex": 0,
+          "text": "宁夏项目平均效率统计表",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 8
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "cells": [
+        {
+          "rowIndex": 1,
+          "colIndex": 0,
+          "text": "",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 1,
+          "colIndex": 1,
+          "text": "时间:天",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 1,
+          "colIndex": 2,
+          "text": "工作量:km²",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 1,
+          "colIndex": 3,
+          "text": "固安工作量:km²",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 1,
+          "colIndex": 4,
+          "text": "人数",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 1,
+          "colIndex": 5,
+          "text": "公司日平均效率:km²",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 1,
+          "colIndex": 6,
+          "text": "固安平均效率:km²",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 1,
+          "colIndex": 7,
+          "text": "固安每人日平均效率:km²",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "cells": [
+        {
+          "rowIndex": 2,
+          "colIndex": 0,
+          "text": "第一批",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 2,
+          "colIndex": 1,
+          "text": "40",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 2,
+          "colIndex": 2,
+          "text": "2.7",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 2,
+          "colIndex": 3,
+          "text": "0.91",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 2,
+          "colIndex": 4,
+          "text": "12",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 2,
+          "colIndex": 5,
+          "text": "0.0675",
+          "formula": "C3/B3",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 2,
+          "colIndex": 6,
+          "text": "0.02275",
+          "formula": "D3/B3",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 2,
+          "colIndex": 7,
+          "text": "0.0018958333333333334",
+          "formula": "G3/E3",
+          "rowSpan": 1,
+          "colSpan": 1
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "cells": [
+        {
+          "rowIndex": 3,
+          "colIndex": 0,
+          "text": "第二批",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 3,
+          "colIndex": 1,
+          "text": "50",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 3,
+          "colIndex": 2,
+          "text": "13",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 3,
+          "colIndex": 3,
+          "text": "5.27",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 3,
+          "colIndex": 4,
+          "text": "6",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 3,
+          "colIndex": 5,
+          "text": "0.26",
+          "formula": "C4/B4",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 3,
+          "colIndex": 6,
+          "text": "0.1054",
+          "formula": "D4/B4",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 3,
+          "colIndex": 7,
+          "text": "0.017566666666666668",
+          "formula": "G4/E4",
+          "rowSpan": 1,
+          "colSpan": 1
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "cells": [
+        {
+          "rowIndex": 4,
+          "colIndex": 0,
+          "text": "第三批",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 4,
+          "colIndex": 1,
+          "text": "30",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 4,
+          "colIndex": 2,
+          "text": "9.1",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 4,
+          "colIndex": 3,
+          "text": "2.4",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 4,
+          "colIndex": 4,
+          "text": "6",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 4,
+          "colIndex": 5,
+          "text": "0.30333333333333334",
+          "formula": "C5/B5",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 4,
+          "colIndex": 6,
+          "text": "0.08",
+          "formula": "D5/B5",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 4,
+          "colIndex": 7,
+          "text": "0.013333333333333334",
+          "formula": "G5/E5",
+          "rowSpan": 1,
+          "colSpan": 1
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "cells": [
+        {
+          "rowIndex": 5,
+          "colIndex": 0,
+          "text": "第四批",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 5,
+          "colIndex": 1,
+          "text": "18",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 5,
+          "colIndex": 2,
+          "text": "9.8",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 5,
+          "colIndex": 3,
+          "text": "5.1",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 5,
+          "colIndex": 4,
+          "text": "6",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 5,
+          "colIndex": 5,
+          "text": "0.5444444444444444",
+          "formula": "C6/B6",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 5,
+          "colIndex": 6,
+          "text": "0.2833333333333333",
+          "formula": "D6/B6",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 5,
+          "colIndex": 7,
+          "text": "0.047222222222222214",
+          "formula": "G6/E6",
+          "rowSpan": 1,
+          "colSpan": 1
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "cells": [
+        {
+          "rowIndex": 6,
+          "colIndex": 0,
+          "text": "第五批",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 6,
+          "colIndex": 1,
+          "text": "30",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 6,
+          "colIndex": 2,
+          "text": "18.69",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 6,
+          "colIndex": 3,
+          "text": "12.62",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 6,
+          "colIndex": 4,
+          "text": "6",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 6,
+          "colIndex": 5,
+          "text": "0.623",
+          "formula": "C7/B7",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 6,
+          "colIndex": 6,
+          "text": "0.4206666666666667",
+          "formula": "D7/B7",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 6,
+          "colIndex": 7,
+          "text": "0.07011111111111111",
+          "formula": "G7/E7",
+          "rowSpan": 1,
+          "colSpan": 1
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "cells": [
+        {
+          "rowIndex": 7,
+          "colIndex": 0,
+          "text": "",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 7,
+          "colIndex": 1,
+          "text": "30",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 7,
+          "colIndex": 2,
+          "text": "18.69",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 7,
+          "colIndex": 3,
+          "text": "15.3",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 7,
+          "colIndex": 4,
+          "text": "6",
+          "formula": "",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 7,
+          "colIndex": 5,
+          "text": "0.623",
+          "formula": "C8/B8",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 7,
+          "colIndex": 6,
+          "text": "0.51",
+          "formula": "D8/B8",
+          "rowSpan": 1,
+          "colSpan": 1
+        },
+        {
+          "rowIndex": 7,
+          "colIndex": 7,
+          "text": "0.085",
+          "formula": "G8/E8",
+          "rowSpan": 1,
+          "colSpan": 1
+        }
+      ]
+    }
+  ],
+  "merges": [
+    {
+      "row": 0,
+      "col": 0,
+      "rowCount": 1,
+      "colCount": 8
+    }
+  ]
+}

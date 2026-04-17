@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>语雀→Obsidian</title>
+    <title>语雀导出到 Obsidian</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -12,108 +12,265 @@
     <main class="shell">
       <section class="hero panel">
         <div>
-          <h1>语雀→Obsidian</h1>
+          <h1>
+            <span class="hero-brand" aria-label="Yuque to Obsidian">
+              <img class="hero-brand-logo yuque-logo" src="./assets/yuque.png" alt="Yuque" />
+              <span class="hero-brand-arrow" aria-hidden="true">→</span>
+              <img class="hero-brand-logo obsidian-logo" src="./assets/obsidian.png" alt="Obsidian" />
+            </span>
+          </h1>
         </div>
         <div class="hero-actions">
           <button id="login-btn" class="primary">登录语雀</button>
           <button id="scan-btn" class="secondary">扫描知识库</button>
-          <button id="export-btn" class="primary">开始导出</button>
-          <button id="stop-btn" class="ghost">停止导出</button>
+          <button id="export-btn" class="secondary">开始导出</button>
+          <button id="stop-btn" class="ghost" disabled>停止导出</button>
         </div>
       </section>
 
       <section class="grid">
-        <article class="panel config-card">
-          <div class="section-title">
+        <article class="config-card">
+          <div class="section-title config-title-bar">
             <h2>导出配置</h2>
-            <button id="save-settings-btn" class="ghost small">保存配置</button>
-          </div>
-          <div class="config-scroll">
-            <div class="config-account">
-              <span>已登录账号</span>
+            <div class="config-title-actions">
               <div id="account-badge" class="account-badge inline">
                 <span class="account-dot"></span>
                 <span id="account-text">未检测到登录状态</span>
               </div>
+              <button id="save-settings-btn" class="ghost small">保存配置</button>
             </div>
+          </div>
+          <div class="config-hidden-fields" hidden>
+            <input id="browser-path" />
+            <input id="cookie-path" />
+          </div>
+          <div class="config-scroll">
+            <div class="config-layout">
+              <div class="config-column config-column-left">
+                <section class="config-group">
+                  <div class="config-group-header">
+                    <h3>导出选项</h3>
+                  </div>
+                  <div class="config-group-body config-group-body-static">
+                    <div class="toggle-row toggle-row-static">
+                      <label class="toggle">
+                        <input id="download-images" type="checkbox" />
+                        <span>下载图片</span>
+                      </label>
+                      <label class="toggle">
+                        <input id="download-attachments" type="checkbox" />
+                        <span>下载附件</span>
+                      </label>
+                      <label class="toggle">
+                        <input id="incremental-export" type="checkbox" />
+                        <span>增量导出</span>
+                      </label>
+                    </div>
 
-            <label>
-              <span>浏览器路径</span>
-              <input id="browser-path" placeholder="可留空，使用 Puppeteer 默认浏览器" />
-            </label>
+                    <div class="pill-row pill-row-static">
+                      <span class="pill">复杂块: 结构化优先</span>
+                      <span class="pill">数据表: CSV / JSON / HTML / Bases</span>
+                      <span class="pill">资源布局: 知识库级 `_assets`</span>
+                    </div>
+                  </div>
+                </section>
 
-            <label>
-              <span>Cookie 路径</span>
-              <input id="cookie-path" />
-            </label>
+                <section class="config-group">
+                  <div class="config-group-header">
+                    <h3>加密策略</h3>
+                  </div>
+                  <div class="config-group-body columns-2 config-group-body-static">
+                    <label class="full-span">
+                      <span>加密文本块密码</span>
+                      <div class="password-field">
+                        <textarea
+                          id="encrypted-passwords"
+                          class="masked-textarea"
+                          rows="3"
+                          placeholder="一行一个密码，全部密码都不匹配时会跳过加密内容，并在 CSV 中记录原因。"
+                          spellcheck="false"
+                        ></textarea>
+                        <button
+                          id="toggle-passwords-btn"
+                          class="ghost icon-btn"
+                          type="button"
+                          aria-label="显示密码"
+                          title="显示或隐藏密码"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 5C6.5 5 2.2 8.3 1 12c1.2 3.7 5.5 7 11 7s9.8-3.3 11-7c-1.2-3.7-5.5-7-11-7Zm0 11.2A4.2 4.2 0 1 1 12 7.8a4.2 4.2 0 0 1 0 8.4Zm0-2.2a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </label>
 
-            <label>
-              <span>导出目录</span>
-              <div class="inline-field">
-                <input id="output-dir" />
-                <button id="choose-output-btn" class="secondary">选择</button>
+                    <label>
+                      <span class="field-label">
+                        <span>导出后重加密</span>
+                        <span class="hint-badge" tabindex="0" aria-label="查看导出后重加密说明">
+                          ?
+                          <span class="hint-tooltip">仅影响已成功解锁并导出的语雀加密块，输出格式与 Meld Encrypt 兼容。</span>
+                        </span>
+                      </span>
+                      <div class="select-shell">
+                        <select id="reencrypt-encrypted-blocks-mode">
+                          <option value="off">不重加密</option>
+                          <option value="global">使用全局密码重加密</option>
+                          <option value="matched-block">按原密码加密</option>
+                        </select>
+                        <span class="select-chevron" aria-hidden="true"></span>
+                      </div>
+                    </label>
+
+                    <label id="reencrypt-global-password-field">
+                      <span class="field-label">
+                        <span>全局重加密密码</span>
+                        <span class="hint-badge" tabindex="0" aria-label="查看全局重加密密码说明">
+                          ?
+                          <span class="hint-tooltip">未填写时会回退为明文导出，并在失败 CSV 与导出警告中记录原因。</span>
+                        </span>
+                      </span>
+                      <div class="inline-field">
+                        <input
+                          id="reencrypt-global-password"
+                          type="password"
+                          placeholder="仅在“使用全局密码重加密”模式下生效"
+                          spellcheck="false"
+                        />
+                        <button
+                          id="toggle-reencrypt-password-btn"
+                          class="ghost icon-btn"
+                          type="button"
+                          aria-label="显示重加密密码"
+                          title="显示或隐藏重加密密码"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 5C6.5 5 2.2 8.3 1 12c1.2 3.7 5.5 7 11 7s9.8-3.3 11-7c-1.2-3.7-5.5-7-11-7Zm0 11.2A4.2 4.2 0 1 1 12 7.8a4.2 4.2 0 0 1 0 8.4Zm0-2.2a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+                </section>
               </div>
-            </label>
 
-            <label>
-              <span>加密文本块密码</span>
-              <div class="password-field">
-                <textarea
-                  id="encrypted-passwords"
-                  class="masked-textarea"
-                  placeholder="支持设置多个密码，一行一个。导出遇到加密块时会按顺序逐个尝试。"
-                  spellcheck="false"
-                ></textarea>
-                <button
-                  id="toggle-passwords-btn"
-                  class="ghost icon-btn"
-                  type="button"
-                  aria-label="显示或隐藏密码"
-                  title="显示或隐藏密码"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 5C6.5 5 2.2 8.3 1 12c1.2 3.7 5.5 7 11 7s9.8-3.3 11-7c-1.2-3.7-5.5-7-11-7Zm0 11.2A4.2 4.2 0 1 1 12 7.8a4.2 4.2 0 0 1 0 8.4Zm0-2.2a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"></path>
-                  </svg>
-                </button>
+              <div class="config-column config-column-right">
+                <section class="config-group">
+                  <div class="config-group-header">
+                    <h3>路径设置</h3>
+                  </div>
+                  <div class="config-group-body columns-2">
+                    <label class="full-span">
+                      <span>输出目录</span>
+                      <div class="inline-field">
+                        <input id="output-dir" />
+                        <button id="choose-output-btn" class="secondary" type="button">选择</button>
+                      </div>
+                    </label>
+
+                    <label class="full-span">
+                      <span>导出目录</span>
+                      <div class="select-shell">
+                        <select id="vault-export-layout">
+                          <option value="output-only">只写输出目录</option>
+                          <option value="direct-to-vault">直接写入 Obsidian 仓库</option>
+                        </select>
+                        <span class="select-chevron" aria-hidden="true"></span>
+                      </div>
+                    </label>
+
+                    <div class="path-pair-row full-span">
+                      <label class="path-pair-main">
+                        <span>Obsidian 仓库目录</span>
+                        <div class="inline-field">
+                          <input id="obsidian-vault-path" placeholder="可留空，表示只导出到输出目录" />
+                          <button id="choose-vault-btn" class="secondary" type="button">选择</button>
+                        </div>
+                      </label>
+
+                      <label class="path-pair-sub">
+                        <span>仓库子目录</span>
+                        <input
+                          id="vault-export-subdir"
+                          placeholder="当启用“直接写入 Obsidian 仓库”时，可留空；留空时内容会直接写入仓库根目录。"
+                        />
+                      </label>
+                    </div>
+
+                    <label class="full-span">
+                      <span class="config-subsection-title">数据表设置</span>
+                      <div class="select-shell">
+                        <select id="obsidian-setup-mode">
+                          <option value="none">不自动配置</option>
+                          <option value="bases">启用 Bases</option>
+                          <option value="bases+community">启用 Bases + base-board</option>
+                        </select>
+                        <span class="select-chevron" aria-hidden="true"></span>
+                      </div>
+                    </label>
+
+                    <div class="config-action-row full-span">
+                      <span class="config-action-title config-subsection-title">按失败日志重导并覆盖</span>
+                      <button
+                        id="retry-failures-btn"
+                        class="secondary icon-btn action-run-btn"
+                        type="button"
+                        aria-label="开始按失败日志重导并覆盖"
+                        title="开始按失败日志重导并覆盖"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M8 5.5v13l10-6.5-10-6.5Z"></path>
+                        </svg>
+                      </button>
+                    </div>
+
+                    <label class="full-span">
+                      <span>失败日志 CSV</span>
+                      <div class="inline-field">
+                        <input id="failure-csv-path" placeholder="选择 export-failures-*.csv 以重导问题文档" />
+                        <button id="choose-failure-csv-btn" class="secondary" type="button">选择</button>
+                      </div>
+                    </label>
+                  </div>
+                </section>
               </div>
-              <small class="field-hint">一行一个密码，全部密码都不匹配时会跳过加密内容，并在 CSV 中记录原因。</small>
-            </label>
-
-            <div class="toggle-row">
-              <label class="toggle">
-                <input id="download-images" type="checkbox" />
-                <span>下载图片</span>
-              </label>
-              <label class="toggle">
-                <input id="download-attachments" type="checkbox" />
-                <span>下载附件</span>
-              </label>
-              <label class="toggle">
-                <input id="incremental-export" type="checkbox" />
-                <span>增量导出</span>
-              </label>
-            </div>
-
-            <div class="pill-row">
-              <span class="pill">复杂块: 快照优先</span>
-              <span class="pill">附件布局: 知识库级 `_assets`</span>
             </div>
           </div>
         </article>
 
-        <article class="panel books-card">
+        <article class="books-card">
           <div class="section-title">
-            <h2>知识库选择</h2>
+            <h2>知识库列表</h2>
             <div class="tree-actions">
-              <button id="expand-all-btn" class="ghost small">展开全部</button>
-              <button id="collapse-all-btn" class="ghost small">折叠全部</button>
+              <button
+                id="tree-fold-toggle-btn"
+                class="ghost small tree-fold-toggle"
+                type="button"
+                aria-label="当前已折叠，点击全部展开"
+                title="当前已折叠，点击全部展开"
+              >
+                <span id="tree-fold-icon-expand" class="tree-fold-icon" aria-hidden="true" hidden>
+                  <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M513.102101 171.523515c-136.414903 0-272.829805-0.046049-409.244708 0.077771-12.509918 0.011256-25.362644-9.190313-26.373671-25.569352-0.63138-10.219759 5.984295-24.00267 20.539802-26.688849 2.455935-0.453325 4.951779-0.988514 7.429203-0.988513 271.465738-0.045025 542.931476-0.046049 814.396191-0.025583 9.908674 0.001023 18.522865 3.177366 24.112164 11.79872 5.507434 8.495488 5.941316 17.689894 1.707898 26.829042-4.241604 9.157567-11.683087 14.481829-21.787212 14.490016-136.926556 0.115634-273.853112 0.076748-410.779667 0.076748zM731.185025 819.276339v-7.140631c0-139.469472-0.016373-278.938943 0.023536-418.408415 0.004093-15.046694 6.880711-25.189705 19.984146-28.996405 16.760732-4.868891 33.361829 8.329712 33.336246 24.261567-0.227174 141.1743-0.132006 282.3486-0.132006 423.5229v6.760984h5.701862c17.391089 0 34.782178-0.052189 52.173267 0.048095 3.158946 0.01842 6.39464 0.332575 9.455349 1.081635 8.453533 2.069125 12.269441 10.323113 8.337899 18.231223-1.543146 3.102664-3.581572 6.139837-6.013971 8.592702-22.327518 22.518876-44.774763 44.919049-67.218937 67.321268-14.908548 14.879895-42.137703 14.891152-57.040111 0.020466-22.569018-22.520923-45.137013-45.042869-67.613934-67.655889-4.411473-4.438079-8.099469-9.710153-7.148817-16.288988 1.039679-7.191796 7.492648-11.293207 16.612353-11.329023 17.73185-0.070608 35.4637-0.021489 53.196573-0.021489h6.346545zM308.451094 363.90508c68.373227 0 136.748501 0.202615 205.120704-0.155542 15.281031-0.079818 29.117155 16.940834 25.711592 31.896454-2.65855 11.675924-15.168468 21.605064-26.65201 21.589714-135.895063-0.184195-271.789103-0.11768-407.684166-0.119727-15.061021 0-26.987654-10.246365-27.458375-26.087145-0.445138-14.992459 10.951423-27.073612 25.841551-27.089985 68.373227-0.075725 136.747477-0.033769 205.120704-0.033769zM308.639382 907.280672c-68.531839 0-137.063679 0.00307-205.595518-0.00307-12.217253-0.001023-22.654976-9.272177-24.784476-21.38096-3.507894-19.954471 12.060687-31.917944 27.381627-31.902594 135.358851 0.128937 270.717701 0.062422 406.076552 0.097214 11.316743 0.00307 20.165272 4.601808 25.2685 15.044648 5.279237 10.803044 3.291976 21.087271-4.074805 29.928636-4.568039 5.481851-11.100826 8.268314-18.676361 8.260128-68.531839-0.073678-137.063679-0.044002-205.595519-0.044002zM308.73455 609.498568c68.705801 0 137.412626-0.002047 206.118428 0.002047 11.419074 0 21.358447 7.958252 23.940248 19.142989 2.956332 12.8077-1.830695 25.165146-12.472056 29.837562-5.207605 2.286066-11.158131 4.048199-16.776082 4.057409-134.001947 0.221034-268.004917 0.203638-402.006863 0.119727-12.595876-0.008186-22.848381-4.542456-28.113291-17.049305-6.449899-15.321964 4.375657-36.144198 22.679535-36.130895 68.876694 0.051165 137.753387 0.020466 206.630081 0.020466z"
+                    />
+                  </svg>
+                </span>
+                <span id="tree-fold-icon-collapse" class="tree-fold-icon" aria-hidden="true">
+                  <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M867.1 141.17H156.08c-17.67 0-32 14.33-32 32s14.33 32 32 32H867.1c17.67 0 32-14.33 32-32s-14.33-32-32-32zM867.92 367.52H403.2c-17.67 0-32 14.33-32 32s14.33 32 32 32h464.73c17.67 0 32-14.33 32-32s-14.33-32-32.01-32zM867.92 573.87H403.2c-17.67 0-32 14.33-32 32s14.33 32 32 32h464.73c17.67 0 32-14.33 32-32s-14.33-32-32.01-32zM867.92 800.22H156.9c-17.67 0-32 14.33-32 32s14.33 32 32 32h711.02c17.67 0 32-14.33 32-32 0-17.68-14.32-32-32-32zM137.47 637.87V367.52l174.54 148.15z"
+                    />
+                  </svg>
+                </span>
+              </button>
             </div>
           </div>
           <span id="book-count" class="muted book-count-line">未扫描</span>
           <div id="books-list" class="books-list empty-state">先登录并扫描知识库。</div>
         </article>
 
-        <article class="panel logs-card">
+        <article class="logs-card">
           <div class="section-title">
             <h2>任务日志</h2>
             <button id="open-output-btn" class="ghost small">打开导出目录</button>

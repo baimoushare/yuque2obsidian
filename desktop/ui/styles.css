@@ -1,6 +1,7 @@
 :root {
   --bg-top: #f4ebff;
   --bg-bottom: #f7f3ff;
+  --bg-base: #f6f0ff;
   --panel-bg: rgba(255, 255, 255, 0.54);
   --panel-stroke: rgba(255, 255, 255, 0.65);
   --text-main: #3a2a52;
@@ -11,6 +12,13 @@
   --radius-xl: 34px;
   --radius-lg: 24px;
   --radius-md: 18px;
+  --top-cards-height: 680px;
+  --logs-card-min-height: 320px;
+  --logs-card-max-height: 560px;
+  --scrollbar-track: var(--bg-base);
+  --scrollbar-track-soft: rgba(255, 255, 255, 0.24);
+  --scrollbar-thumb: rgba(139, 104, 244, 0.38);
+  --scrollbar-thumb-hover: rgba(139, 104, 244, 0.52);
   --font-display: "LXGW WenKai", "霞鹜文楷", "Microsoft YaHei UI", serif;
   --font-body: "LXGW WenKai", "霞鹜文楷", "Microsoft YaHei UI", serif;
 }
@@ -26,6 +34,12 @@ body {
 
 html {
   scrollbar-width: none;
+  background:
+    radial-gradient(34% 28% at 9% 18%, rgba(196, 160, 255, 0.34), transparent 72%),
+    radial-gradient(28% 24% at 86% 14%, rgba(199, 225, 255, 0.28), transparent 72%),
+    radial-gradient(30% 26% at 88% 80%, rgba(171, 212, 255, 0.26), transparent 74%),
+    radial-gradient(24% 22% at 14% 78%, rgba(214, 196, 255, 0.2), transparent 76%),
+    linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
 }
 
 html::-webkit-scrollbar {
@@ -34,7 +48,7 @@ html::-webkit-scrollbar {
 
 html.show-shell-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(139, 104, 244, 0.42) transparent;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 html.show-shell-scrollbar::-webkit-scrollbar {
@@ -42,8 +56,14 @@ html.show-shell-scrollbar::-webkit-scrollbar {
 }
 
 html::-webkit-scrollbar-track {
-  background: transparent;
+  background:
+    radial-gradient(34% 28% at 9% 18%, rgba(196, 160, 255, 0.34), transparent 72%),
+    radial-gradient(28% 24% at 86% 14%, rgba(199, 225, 255, 0.28), transparent 72%),
+    radial-gradient(30% 26% at 88% 80%, rgba(171, 212, 255, 0.26), transparent 74%),
+    radial-gradient(24% 22% at 14% 78%, rgba(214, 196, 255, 0.2), transparent 76%),
+    linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
   margin-block: 18px;
+  border-radius: 999px;
 }
 
 html::-webkit-scrollbar-button {
@@ -54,9 +74,13 @@ html::-webkit-scrollbar-button {
 
 html::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(139, 104, 244, 0.38);
+  background: var(--scrollbar-thumb);
   border: 2px solid transparent;
   background-clip: padding-box;
+}
+
+html::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {
@@ -65,10 +89,13 @@ body {
   font-family: var(--font-body);
   color: var(--text-main);
   background:
-    radial-gradient(circle at 12% 18%, rgba(209, 186, 255, 0.9), transparent 30%),
-    radial-gradient(circle at 86% 12%, rgba(199, 225, 255, 0.72), transparent 28%),
+    radial-gradient(34% 28% at 9% 18%, rgba(196, 160, 255, 0.34), transparent 72%),
+    radial-gradient(28% 24% at 86% 14%, rgba(199, 225, 255, 0.28), transparent 72%),
+    radial-gradient(30% 26% at 88% 80%, rgba(171, 212, 255, 0.26), transparent 74%),
+    radial-gradient(24% 22% at 14% 78%, rgba(214, 196, 255, 0.2), transparent 76%),
     linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .aurora {
@@ -96,16 +123,17 @@ body {
 .shell {
   position: relative;
   z-index: 1;
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   gap: 22px;
   padding: 28px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .panel {
   backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   background: var(--panel-bg);
   border: 1px solid var(--panel-stroke);
   box-shadow: var(--shadow);
@@ -117,8 +145,8 @@ body {
   gap: 18px;
   align-items: center;
   border-radius: var(--radius-lg);
-  min-height: 68px;
-  padding: 10px 18px;
+  min-height: 82px;
+  padding: 14px 20px;
   flex-shrink: 0;
 }
 
@@ -137,8 +165,38 @@ h2 {
 }
 
 h1 {
-  font-size: 21px;
+  font-size: 24px;
   line-height: 1.1;
+}
+
+.hero-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hero-brand-logo {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.yuque-logo {
+  width: 30px;
+  height: 30px;
+}
+
+.obsidian-logo {
+  width: 28px;
+  height: 28px;
+}
+
+.hero-brand-arrow {
+  font-size: 18px;
+  line-height: 1;
+  color: rgba(116, 97, 143, 0.92);
 }
 
 .account-badge {
@@ -188,18 +246,35 @@ h1 {
   flex: 0 1 auto;
   min-width: 0;
   white-space: nowrap;
-  padding: 8px 11px;
-  font-size: 12px;
+  padding: 10px 14px;
+  font-size: 14px;
   border-radius: 13px;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: minmax(360px, 420px) minmax(340px, 440px) minmax(0, 1fr);
-  gap: 22px;
-  flex: 1;
-  min-height: 0;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-rows: var(--top-cards-height) auto;
+  column-gap: 22px;
+  row-gap: 20px;
+  flex: 1 1 auto;
+  min-height: auto;
   max-width: 100%;
+  align-items: stretch;
+}
+
+.logs-card {
+  grid-column: 1 / -1;
+  min-height: var(--logs-card-min-height);
+  max-height: min(var(--logs-card-max-height), calc(100vh - 180px));
+  align-self: stretch;
+  position: relative;
+  overflow: hidden;
+}
+
+.logs-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .config-card,
@@ -213,30 +288,60 @@ h1 {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(255, 255, 255, 0.46);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 10px 22px rgba(117, 80, 173, 0.08);
+}
+
+.config-card,
+.books-card {
+  height: var(--top-cards-height);
+  min-height: var(--top-cards-height);
+  max-height: var(--top-cards-height);
+  align-self: stretch;
+}
+
+.logs-card {
+  min-height: var(--logs-card-min-height);
 }
 
 .config-card {
   overflow: hidden;
   position: relative;
+  padding: 18px 16px 18px;
+  gap: 14px;
 }
 
 .config-card .section-title {
   flex-shrink: 0;
-  padding-bottom: 4px;
+  padding: 0 2px 2px;
+}
+
+.config-title-bar {
+  align-items: center;
+}
+
+.config-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .config-scroll {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 14px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 18px;
-  scrollbar-gutter: stable;
+  padding: 0;
+  scrollbar-gutter: auto;
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: transparent var(--scrollbar-track-soft);
 }
 
 .config-scroll::-webkit-scrollbar {
@@ -244,12 +349,13 @@ h1 {
 }
 
 .config-scroll:hover {
-  scrollbar-color: rgba(139, 104, 244, 0.42) transparent;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 .config-scroll::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--scrollbar-track-soft);
   margin-block: 18px;
+  border-radius: 999px;
 }
 
 .config-scroll::-webkit-scrollbar-button {
@@ -266,7 +372,144 @@ h1 {
 }
 
 .config-scroll:hover::-webkit-scrollbar-thumb {
-  background: rgba(139, 104, 244, 0.38);
+  background: var(--scrollbar-thumb-hover);
+}
+
+.config-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.config-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.config-column-right {
+  height: 100%;
+}
+
+.config-column-right .config-group {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.config-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: fit-content;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(168, 142, 227, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(248, 243, 255, 0.56)),
+    rgba(255, 255, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 8px 18px rgba(117, 80, 173, 0.04),
+    0 18px 30px rgba(117, 80, 173, 0.035);
+}
+
+.config-group-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.config-group-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--text-main);
+}
+
+.config-subsection-title {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-main);
+}
+
+.config-group-header p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-soft);
+}
+
+.config-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.config-group-body.columns-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+}
+
+.config-group-body-static {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-group-body > * {
+  min-width: 0;
+}
+
+.full-span {
+  grid-column: 1 / -1;
+}
+
+.path-pair-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.3fr) minmax(0, 0.8fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.path-pair-row > * {
+  min-width: 0;
+}
+
+.config-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.config-action-title {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.config-action-title.config-subsection-title {
+  color: var(--text-main);
+  font-size: 15px;
+}
+
+.action-run-btn {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 14px;
+  padding: 0;
+}
+
+.action-run-btn svg {
+  width: 18px;
+  height: 18px;
+  margin-left: 1px;
 }
 
 .section-title {
@@ -290,6 +533,34 @@ h1 {
   flex-shrink: 0;
 }
 
+.tree-fold-toggle {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+}
+
+.tree-fold-icon {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: rgba(116, 97, 143, 0.92);
+}
+
+.tree-fold-icon[hidden] {
+  display: none !important;
+}
+
+.tree-fold-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  fill: currentColor;
+}
+
 .muted {
   color: var(--text-soft);
   font-size: 14px;
@@ -306,6 +577,77 @@ label {
   gap: 8px;
   font-size: 14px;
   color: var(--text-soft);
+}
+
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.hint-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(139, 104, 244, 0.26);
+  background: rgba(175, 146, 255, 0.14);
+  color: var(--accent-deep);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+
+.hint-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%) translateY(6px);
+  width: 220px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(168, 142, 227, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 36px rgba(117, 80, 173, 0.16);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    visibility 0.18s ease;
+  z-index: 8;
+}
+
+.hint-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 10px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border-right: 1px solid rgba(168, 142, 227, 0.22);
+  border-bottom: 1px solid rgba(168, 142, 227, 0.22);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.hint-badge:hover .hint-tooltip,
+.hint-badge:focus-visible .hint-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
 }
 
 .config-account {
@@ -327,6 +669,112 @@ input {
   outline: none;
 }
 
+input:disabled,
+textarea:disabled {
+  background: rgba(244, 239, 252, 0.72);
+  border-color: rgba(168, 142, 227, 0.12);
+  color: rgba(116, 97, 143, 0.62);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(116, 97, 143, 0.72);
+}
+
+.select-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  padding: 0 16px;
+  border: 1px solid rgba(168, 142, 227, 0.2);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(145, 108, 210, 0.06);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.is-disabled {
+  opacity: 0.68;
+}
+
+.is-disabled .select-shell,
+.is-disabled .inline-field,
+.is-disabled .password-field {
+  pointer-events: none;
+}
+
+.select-shell:hover {
+  border-color: rgba(139, 104, 244, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 10px 22px rgba(145, 108, 210, 0.08);
+}
+
+.select-shell:focus-within {
+  border-color: rgba(139, 104, 244, 0.52);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    0 0 0 4px rgba(175, 146, 255, 0.14),
+    0 10px 24px rgba(145, 108, 210, 0.09);
+}
+
+.select-shell select {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 14px 36px 14px 0;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-main);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  z-index: 1;
+}
+
+.select-shell select option {
+  color: var(--text-main);
+  background: #ffffff;
+}
+
+.select-chevron {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(116, 97, 143, 0.72);
+  border-bottom: 2px solid rgba(116, 97, 143, 0.72);
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    opacity 0.18s ease;
+  opacity: 0.86;
+}
+
+.select-shell:hover .select-chevron,
+.select-shell:focus-within .select-chevron {
+  border-color: rgba(139, 104, 244, 0.94);
+}
+
+.select-shell:focus-within .select-chevron {
+  transform: translateY(-52%) rotate(45deg);
+}
+
 input:focus,
 textarea:focus {
   border-color: rgba(139, 104, 244, 0.5);
@@ -345,6 +793,12 @@ textarea {
   resize: vertical;
   min-height: 92px;
   line-height: 1.5;
+}
+
+#encrypted-passwords {
+  resize: none;
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 
 .password-field {
@@ -430,11 +884,42 @@ button:disabled {
   border: 1px solid rgba(168, 142, 227, 0.18);
 }
 
+.login-switch-btn {
+  box-shadow: none;
+}
+
 .toggle-row,
 .pill-row {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.toggle-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 14px;
+  align-items: center;
+}
+
+.toggle-row-static,
+.pill-row-static {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.toggle-row-static {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.toggle-row-static .toggle {
+  width: auto;
+  flex: 0 0 auto;
+  justify-content: flex-start;
 }
 
 .toggle {
@@ -442,10 +927,12 @@ button:disabled {
   align-items: center;
   gap: 10px;
   color: var(--text-main);
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .pill {
-  padding: 10px 14px;
+  padding: 9px 13px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.5);
   color: var(--text-soft);
@@ -464,17 +951,20 @@ button:disabled {
   min-height: 0;
   overflow: auto;
   padding-right: 6px;
+  padding-bottom: 6px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(139, 104, 244, 0.42) transparent;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 .books-list::-webkit-scrollbar {
   width: 10px;
+  height: 10px;
 }
 
 .books-list::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--scrollbar-track);
   margin-block: 18px;
+  border-radius: 999px;
 }
 
 .books-list::-webkit-scrollbar-button {
@@ -485,7 +975,7 @@ button:disabled {
 
 .books-list::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(139, 104, 244, 0.38);
+  background: var(--scrollbar-thumb);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -494,20 +984,27 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: max-content;
+  min-width: 100%;
 }
 
 .tree-node {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: max-content;
+  min-width: 100%;
 }
 
 .tree-row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: max-content max-content max-content;
   align-items: center;
+  justify-content: start;
   gap: 10px;
   min-height: 34px;
+  width: max-content;
+  min-width: 100%;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -600,7 +1097,8 @@ button:disabled {
 }
 
 .tree-label {
-  min-width: 0;
+  min-width: max-content;
+  width: max-content;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -615,9 +1113,9 @@ button:disabled {
 
 .tree-label strong,
 .tree-label span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
@@ -639,9 +1137,12 @@ button:disabled {
 
 .book-root-label {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: max-content auto;
   align-items: center;
+  justify-content: start;
   gap: 12px;
+  width: max-content;
+  min-width: 100%;
 }
 
 .book-root-label .book-doc-count {
@@ -689,7 +1190,8 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 .progress-group {
@@ -744,7 +1246,7 @@ button:disabled {
 }
 
 .logs {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
   margin: 0;
@@ -775,6 +1277,7 @@ button:disabled {
 
   .grid {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
     height: auto;
   }
 
@@ -788,13 +1291,32 @@ button:disabled {
   }
 
   .hero-actions button {
-    padding: 8px 10px;
-    font-size: 12px;
+    padding: 9px 12px;
+    font-size: 13px;
   }
 
   .config-card,
   .books-card,
   .logs-card {
-    min-height: 320px;
+    height: auto;
+    min-height: var(--logs-card-min-height);
+    max-height: none;
   }
+
+  .config-group-body.columns-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .toggle-row {
+    grid-template-columns: 1fr;
+  }
+
+  .path-pair-row {
+    grid-template-columns: 1fr;
+  }
+
+  .config-layout {
+    grid-template-columns: 1fr;
+  }
+
 }

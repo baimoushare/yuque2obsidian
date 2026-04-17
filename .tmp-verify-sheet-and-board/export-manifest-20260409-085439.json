@@ -1,0 +1,98 @@
+{
+  "startedAt": "2026-04-09T00:54:12.956Z",
+  "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board",
+  "contentOutputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board",
+  "statePath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\.yuque-export-state.json",
+  "failureCsv": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\export-failures-20260409-085412.csv",
+  "obsidian": {
+    "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board",
+    "contentOutputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board",
+    "vaultPath": "",
+    "setupMode": "none",
+    "vaultExportLayout": "output-only",
+    "vaultExportSubdir": "",
+    "attempted": false,
+    "enabled": [],
+    "failed": [],
+    "notePath": "",
+    "jsonPath": "",
+    "vaultName": "",
+    "cliPath": ""
+  },
+  "encryptedBlockReencryption": {
+    "mode": "off",
+    "globalPasswordConfigured": false
+  },
+  "totals": {
+    "books": 1,
+    "documents": 2,
+    "datatables": 0,
+    "exported": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "books": [
+    {
+      "id": 25331238,
+      "name": "职业工作",
+      "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作",
+      "assetsDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作\\_assets",
+      "summary": {
+        "documents": 2,
+        "exported": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "documents": [
+        {
+          "name": "项目效率统计表",
+          "path": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作\\项目相关\\01.宁夏实景三维项目\\项目效率统计表.md",
+          "yuquePath": "https://www.yuque.com/baimoushare/gongzuo/ytfy6r",
+          "status": "exported",
+          "datatables": [],
+          "warnings": [],
+          "encryptedBlockReencryption": {
+            "mode": "off",
+            "totalBlocks": 0,
+            "encryptedBlockCount": 0,
+            "plainFallbackBlockCount": 0,
+            "missingPasswordBlockOrders": [],
+            "failedBlockOrders": [],
+            "globalPasswordConfigured": false
+          }
+        },
+        {
+          "name": "时空信息新型基础测绘实景三维中国论坛丨会议纪要",
+          "path": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\职业工作\\公司相关\\会议\\公司会议\\2022年\\2022年中会议收集资料\\时空信息新型基础测绘实景三维中国论坛丨会议纪要.md",
+          "yuquePath": "https://www.yuque.com/baimoushare/gongzuo/pqb47y",
+          "status": "exported",
+          "datatables": [],
+          "warnings": [
+            {
+              "phase": "capture-artifacts",
+              "errorType": "BoardExportSidecarOnly",
+              "errorMessage": "Detected embedded Yuque board card content inside a regular document. The main markdown/text content was exported normally, and the embedded board content was kept as Yuque JSON/PNG sidecar files instead of a markdown outline. Reasons: unsupported-root-type:geometry.",
+              "localizedPhase": "提取表格与复杂块",
+              "localizedErrorType": "画板内容已导出为附加文件",
+              "localizedErrorMessage": "检测到普通文档中内嵌了语雀画板卡片。正文文本已正常导出，内嵌画板则保留为 Yuque JSON/PNG 附加文件，而不是强行改写成 Markdown 大纲。原因：unsupported-root-type:geometry"
+            }
+          ],
+          "encryptedBlockReencryption": {
+            "mode": "off",
+            "totalBlocks": 0,
+            "encryptedBlockCount": 0,
+            "plainFallbackBlockCount": 0,
+            "missingPasswordBlockOrders": [],
+            "failedBlockOrders": [],
+            "globalPasswordConfigured": false
+          }
+        }
+      ]
+    }
+  ],
+  "datatables": [],
+  "finishedAt": "2026-04-09T00:54:39.649Z",
+  "status": "success",
+  "manifestPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\export-manifest-20260409-085439.json",
+  "reportPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-verify-sheet-and-board\\export-report.json"
+}

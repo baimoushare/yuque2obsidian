@@ -1,0 +1,163 @@
+{
+  "head": {
+    "version": "2.0.0",
+    "theme": {
+      "name": "default"
+    },
+    "rough": {
+      "name": "default"
+    }
+  },
+  "body": [
+    {
+      "type": "geometry",
+      "html": "<div style=\"text-align:center;\">&nbsp;</div>",
+      "shape": "rect",
+      "category": "basic",
+      "id": "de608ec4-4247-4f79-b84b-64ad79096c57",
+      "x": 332.7922735254623,
+      "y": 39.31312945460178,
+      "width": 118,
+      "height": 175,
+      "zIndex": 0,
+      "rotate": 0
+    },
+    {
+      "id": "7dbafe2f-1310-4536-bc6f-4f3746733edc",
+      "x": 68.79227352546229,
+      "y": 119.31312945460178,
+      "html": "时空信息",
+      "type": "mindmap",
+      "defaultContentStyle": {
+        "color": "rgb(38, 38, 38)"
+      },
+      "border": {
+        "fill": "rgb(245, 245, 245)"
+      },
+      "children": [
+        {
+          "treeEdge": {
+            "stroke": "#A287E1"
+          },
+          "id": "0046be2f-2de5-4744-9437-566a117a3383",
+          "children": [
+            {
+              "id": "56de172e-dcae-4128-862b-a3078c8d2ef2",
+              "children": [
+                {
+                  "id": "ecbdabde-1cf0-42e3-a07f-f9f83d8ae582",
+                  "children": [],
+                  "zIndex": 4,
+                  "html": "经济、社会、文化、生态各领域都要体现"
+                }
+              ],
+              "zIndex": 5,
+              "html": "整体性"
+            }
+          ],
+          "zIndex": 6,
+          "html": "专题内容"
+        },
+        {
+          "html": "地理空间",
+          "treeEdge": {
+            "stroke": "#6F81DB"
+          },
+          "id": "f5a1c02e-f815-48f6-b72e-894dcc4e44aa",
+          "children": [
+            {
+              "id": "6883cfc5-0e82-43a9-b909-9ecd7240bf93",
+              "children": [
+                {
+                  "id": "d7b06891-22ea-44b1-83ff-f82efc199c18",
+                  "children": [],
+                  "zIndex": 7,
+                  "html": "所有地区发展都必须贯彻"
+                }
+              ],
+              "zIndex": 8,
+              "html": "空间性"
+            }
+          ],
+          "zIndex": 9
+        },
+        {
+          "html": "时间序列",
+          "treeEdge": {
+            "stroke": "#6EC4C4"
+          },
+          "id": "7ba8445b-c9d9-47f8-84a7-4791ba12a854",
+          "children": [
+            {
+              "id": "f86704d1-86ab-4e21-aaed-2f1c65d821a7",
+              "children": [
+                {
+                  "id": "6bb2e71e-8174-4b56-a705-48016a83fe6d",
+                  "children": [],
+                  "zIndex": 1,
+                  "html": "必须长期坚持"
+                }
+              ],
+              "zIndex": 2,
+              "html": "连续性"
+            }
+          ],
+          "zIndex": 3
+        }
+      ],
+      "zIndex": 10
+    },
+    {
+      "type": "text",
+      "html": "重要特征",
+      "shape": "text",
+      "id": "6ae0882f-a187-4bdb-bd58-6aea8909b3d6",
+      "x": 359.7922735254623,
+      "y": -17.68687054539822,
+      "zIndex": 11
+    },
+    {
+      "shape": "straight",
+      "target": {
+        "marker": "arrow",
+        "id": "de608ec4-4247-4f79-b84b-64ad79096c57",
+        "connection": [
+          0.5,
+          0
+        ]
+      },
+      "type": "line",
+      "source": {
+        "id": "6ae0882f-a187-4bdb-bd58-6aea8909b3d6"
+      },
+      "id": "d74b5d96-a579-4339-95e8-ec5ecfe8d641",
+      "zIndex": 12
+    },
+    {
+      "type": "image",
+      "image": {
+        "src": "https://cdn.nlark.com/yuque/0/2022/png/12986669/1660704515864-5b02f691-68a2-41fd-b3c9-d9dfa8fbeeca.png",
+        "naturalWidth": 1088,
+        "naturalHeight": 621,
+        "uploadInfo": {
+          "hash": "39c99820af47521d2186d9bc346fe1f4cd5f3540699a438772e6aba658a12940",
+          "fileName": "image.png",
+          "fileType": "image/png",
+          "fileSize": 503363,
+          "localTempSrc": "blob:file:///d0acc389-b8ab-4fe9-8b62-e076f69182ff",
+          "state": -2
+        },
+        "firstInsertRatio": 1
+      },
+      "width": 1000,
+      "height": 570.7720588235294,
+      "x": -266,
+      "y": 349.90625,
+      "constraints": {
+        "proportion": true
+      },
+      "id": "e50f972a-7d81-4946-b6ea-399745010f5a",
+      "zIndex": 13
+    }
+  ]
+}

@@ -14,6 +14,9 @@ test/*
 
 # production
 /build
+/release
+/tmp-test
+/.packaging-temp
 
 # misc
 .DS_Store

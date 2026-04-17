@@ -1,0 +1,58 @@
+{
+  "startedAt": "2026-04-06T23:59:40.576Z",
+  "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check",
+  "contentOutputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check",
+  "statePath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\.yuque-export-state.json",
+  "failureCsv": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\export-failures-20260407-075940.csv",
+  "obsidian": {
+    "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check",
+    "contentOutputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check",
+    "vaultPath": "",
+    "setupMode": "none",
+    "vaultExportLayout": "output-only",
+    "vaultExportSubdir": "语雀导出",
+    "attempted": false,
+    "enabled": [],
+    "failed": [],
+    "notePath": "",
+    "jsonPath": "",
+    "vaultName": "",
+    "cliPath": ""
+  },
+  "totals": {
+    "books": 1,
+    "documents": 1,
+    "datatables": 0,
+    "exported": 0,
+    "failed": 0,
+    "skipped": 1
+  },
+  "books": [
+    {
+      "id": 41578453,
+      "name": "阅读笔记",
+      "outputDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\阅读笔记",
+      "assetsDir": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\阅读笔记\\_assets",
+      "summary": {
+        "documents": 1,
+        "exported": 0,
+        "failed": 0,
+        "skipped": 1
+      },
+      "documents": [
+        {
+          "name": "《读书笔记模板》",
+          "path": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\阅读笔记\\《读书笔记模板》.md",
+          "yuquePath": "https://www.yuque.com/baimoushare/zy597v/pubhayhpz0mhrc7e",
+          "status": "skipped",
+          "reason": "empty-document"
+        }
+      ]
+    }
+  ],
+  "datatables": [],
+  "finishedAt": "2026-04-06T23:59:40.849Z",
+  "status": "success",
+  "manifestPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\export-manifest-20260407-075940.json",
+  "reportPath": "D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\.tmp-empty-doc-check\\export-report.json"
+}
