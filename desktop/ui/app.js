@@ -348,7 +348,18 @@ function syncVaultExportControls() {
 async function startLogin() {
   await saveSettings();
   state.loginWasAlreadyAuthenticated = Boolean(state.loginUser);
-  const { jobId } = await window.pywebview.api.startLogin(readSettings());
+  // 如果当前已登录，说明用户点击的是“切换账号”，需要强制重新认证。
+  // 这里额外检查按钮样式/文案，避免状态刷新滞后时按钮已显示“切换账号”，
+  // 但 state.loginUser 还没同步，导致后端误走“复用旧会话”的快速返回分支。
+  const isReauth =
+    Boolean(state.loginUser) ||
+    elements.loginBtn.classList.contains('login-switch-btn') ||
+    elements.loginBtn.textContent.includes('切换账号');
+  const config = readSettings();
+  if (isReauth) {
+    config.forceReauth = true;
+  }
+  const { jobId } = await window.pywebview.api.startLogin(config);
   state.currentJobId = jobId;
   state.currentJobKind = 'login';
   state.currentJobStatus = 'running';

@@ -140,6 +140,41 @@ async function persistCookiesAndReadUser(cookiePath, cookies) {
   return { cookies, user };
 }
 
+function isSameYuqueUser(left, right) {
+  if (!left || !right) {
+    return false;
+  }
+
+  const leftId = String(left.id || '').trim();
+  const rightId = String(right.id || '').trim();
+  if (leftId && rightId && leftId === rightId) {
+    return true;
+  }
+
+  const leftLogin = String(left.login || '').trim().toLowerCase();
+  const rightLogin = String(right.login || '').trim().toLowerCase();
+  return Boolean(leftLogin && rightLogin && leftLogin === rightLogin);
+}
+
+async function clearYuqueBrowserState(page, onEvent = () => {}) {
+  // 强制切换账号时，需要清理当前浏览器页已加载的语雀会话数据。
+  // 只删除磁盘上的 cookie / userDataDir 还不够；新页面可能已经从浏览器进程中恢复了旧状态。
+  // 这里通过 CDP 同时清理 Cookie 与语雀 origin 下的本地存储，避免继续识别为旧账号。
+  const client = await page.target().createCDPSession();
+  try {
+    await client.send('Network.clearBrowserCookies');
+    for (const origin of ['https://www.yuque.com', 'https://yuque.com']) {
+      await client.send('Storage.clearDataForOrigin', {
+        origin,
+        storageTypes: 'cookies,local_storage,session_storage,indexeddb,cache_storage,service_workers',
+      });
+    }
+    emitAuthEvent(onEvent, '已清理当前浏览器页的语雀会话缓存。');
+  } finally {
+    await client.detach().catch(() => {});
+  }
+}
+
 function emitAuthEvent(onEvent, message) {
   onEvent({
     type: 'progress',
@@ -179,6 +214,24 @@ export function resolveBrowserProfileDir(options = {}) {
   }
 
   return getLoginProfileDir(cookiePath);
+}
+
+function clearLoginSessionArtifacts(options = {}, onEvent = () => {}) {
+  const cookiePath = String(options.cookiePath || '').trim();
+  const profileDir = resolveBrowserProfileDir(options);
+
+  // 切换账号时不能只删除 cookies.json：
+  // 登录浏览器使用独立 userDataDir 保存语雀会话；如果保留该目录，
+  // Puppeteer 打开后会立刻复用旧账号，表现为“点击切换账号没有反应”。
+  if (cookiePath && fs.existsSync(cookiePath)) {
+    fs.rmSync(cookiePath, { force: true });
+    emitAuthEvent(onEvent, '已清除旧登录 Cookie。');
+  }
+
+  if (profileDir && fs.existsSync(profileDir)) {
+    fs.rmSync(profileDir, { recursive: true, force: true });
+    emitAuthEvent(onEvent, '已清除旧登录浏览器会话，准备重新登录。');
+  }
 }
 
 export function buildBrowserLaunchOptions(options = {}) {
@@ -287,14 +340,22 @@ async function tryReuseBrowserSession(page, options = {}) {
   return await readBrowserLoginState(page, options.cookiePath);
 }
 
-export async function runManualLogin(options = {}, onEvent = () => {}) {
-  const existingUser = await tryFetchUserFromCookieFile(options.cookiePath);
-  if (existingUser) {
-    return {
-      cookieCount: loadCookies(options.cookiePath).length,
-      user: existingUser,
-      source: 'cookie-file',
-    };
+export async function runManualLogin(options = {}, onEvent = () => {}, runOptions = {}) {
+  const previousUser = await tryFetchUserFromCookieFile(options.cookiePath);
+
+  // forceReauth 表示用户明确点击“切换账号”。
+  // 此时不能复用旧 cookie 或浏览器会话，必须走完整重新登录流程。
+  if (runOptions.forceReauth) {
+    clearLoginSessionArtifacts(options, onEvent);
+  } else {
+    const existingUser = previousUser;
+    if (existingUser) {
+      return {
+        cookieCount: loadCookies(options.cookiePath).length,
+        user: existingUser,
+        source: 'cookie-file',
+      };
+    }
   }
 
   const resolvedBrowserPath = options.browserPath || resolveSystemBrowserExecutable();
@@ -319,28 +380,50 @@ export async function runManualLogin(options = {}, onEvent = () => {}) {
     await prepareLoginPage(page);
     await page.bringToFront();
 
+    if (runOptions.forceReauth) {
+      await clearYuqueBrowserState(page, onEvent);
+    }
+
     emitAuthEvent(onEvent, 'Login browser opened. Please finish signing in to Yuque there.');
 
-    emitAuthEvent(onEvent, 'Checking whether an existing Yuque session can be reused...');
-    const reused = await tryReuseBrowserSession(page, options);
-    if (reused?.user) {
-      emitAuthEvent(onEvent, `Reused the existing browser session for ${reused.user.name}.`);
-      return {
-        cookieCount: reused.cookies.length,
-        user: reused.user,
-        source: 'browser-session',
-      };
+    if (!runOptions.forceReauth) {
+      emitAuthEvent(onEvent, 'Checking whether an existing Yuque session can be reused...');
+      const reused = await tryReuseBrowserSession(page, options);
+      if (reused?.user) {
+        emitAuthEvent(onEvent, `Reused the existing browser session for ${reused.user.name}.`);
+        return {
+          cookieCount: reused.cookies.length,
+          user: reused.user,
+          source: 'browser-session',
+        };
+      }
     }
 
     emitAuthEvent(onEvent, 'Opening the Yuque login page...');
     await openLoginPage(page);
     emitAuthEvent(onEvent, 'Yuque login page opened. Waiting for sign-in to finish...');
+    let hasIgnoredPreviousUserSession = false;
     const cookies = await waitForManualLogin(page, {
       timeoutMs: options.timeoutMs,
       pollMs: options.pollMs,
       validateLogin: async (nextCookies) => {
-        const validated = await persistCookiesAndReadUser(options.cookiePath, nextCookies);
-        return validated ? { ok: true, cookies: validated.cookies, user: validated.user } : null;
+        const nextUser = await tryFetchUserFromCookies(nextCookies);
+        if (!nextUser) {
+          return null;
+        }
+
+        // 如果强制切换账号时仍检测到旧账号，说明页面自动恢复了历史会话。
+        // 这里忽略这次结果，继续等待用户完成真正的新账号登录。
+        if (runOptions.forceReauth && previousUser && isSameYuqueUser(previousUser, nextUser)) {
+          if (!hasIgnoredPreviousUserSession) {
+            hasIgnoredPreviousUserSession = true;
+            emitAuthEvent(onEvent, `仍检测到旧账号 ${nextUser.name || nextUser.login}，请在登录页完成切换账号。`);
+          }
+          return null;
+        }
+
+        saveCookies(options.cookiePath, nextCookies);
+        return { ok: true, cookies: nextCookies, user: nextUser };
       },
     });
 

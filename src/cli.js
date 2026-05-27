@@ -48,6 +48,10 @@ export function parseCliConfig(rawConfig) {
     reencryptGlobalPassword: parsed.reencryptGlobalPassword || '',
     complexBlockMode: parsed.complexBlockMode || 'auto',
     assetLayout: parsed.assetLayout || 'book_assets',
+    // 桌面端点击“切换账号”时会传入该标记。
+    // 这里必须保留下来，否则后续 runManualLogin 会误以为是普通登录，
+    // 直接复用 cookies.json / 浏览器资料目录里的旧会话，表现为按钮点击后没有反应。
+    forceReauth: Boolean(parsed.forceReauth),
     jobControlPath: parsed.jobControlPath || '',
   };
 }
@@ -62,7 +66,7 @@ async function main() {
 
   switch (command) {
     case 'login': {
-      const result = await runManualLogin(config, emit);
+      const result = await runManualLogin(config, emit, { forceReauth: config.forceReauth });
       emit({ type: 'result', status: 'success', ...result });
       break;
     }

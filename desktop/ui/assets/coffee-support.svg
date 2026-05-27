@@ -1,0 +1,41 @@
+<svg width="280" height="320" viewBox="0 0 280 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="26" y1="22" x2="244" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF6E3"/>
+      <stop offset="1" stop-color="#FFE7C7"/>
+    </linearGradient>
+    <linearGradient id="cup" x1="88" y1="118" x2="198" y2="214" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8D5A3A"/>
+      <stop offset="1" stop-color="#5A3621"/>
+    </linearGradient>
+    <linearGradient id="foam" x1="84" y1="104" x2="194" y2="142" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F1"/>
+      <stop offset="1" stop-color="#F4DEC6"/>
+    </linearGradient>
+    <filter id="shadow" x="26" y="18" width="228" height="284" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="12"/>
+      <feGaussianBlur stdDeviation="12"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.486275 0 0 0 0 0.313726 0 0 0 0 0.14902 0 0 0 0.18 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+  </defs>
+  <rect x="26" y="22" width="228" height="260" rx="28" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <rect x="42" y="34" width="196" height="236" rx="24" fill="#FFFDF9"/>
+    <circle cx="140" cy="124" r="54" fill="#FFF2DA"/>
+    <path d="M94 115C94 107.268 100.268 101 108 101H165C176.598 101 186 110.402 186 122V171C186 186.464 173.464 199 158 199H118C104.745 199 94 188.255 94 175V115Z" fill="url(#cup)"/>
+    <path d="M170 116H182C194.15 116 204 125.85 204 138V141C204 153.15 194.15 163 182 163H176V149H182C186.418 149 190 145.418 190 141V138C190 133.582 186.418 130 182 130H170V116Z" fill="#9B6644"/>
+    <path d="M100 114C100 105.163 107.163 98 116 98H158C167.941 98 176 106.059 176 116V121H100V114Z" fill="url(#foam)"/>
+    <path d="M111 83C108.893 78.32 108.758 73.065 110.626 68.282C111.435 66.209 114.103 65.519 115.851 66.882C117.072 67.835 117.441 69.516 116.899 70.964C115.676 74.237 115.78 77.867 117.203 81.065L118.634 84.281C120.658 88.831 120.773 93.999 118.95 98.635C118.154 100.659 115.617 101.377 113.867 100.087C112.614 99.163 112.214 97.46 112.733 96.006C113.92 92.677 113.795 88.999 112.382 85.765L111 83Z" fill="#C98D59"/>
+    <path d="M139 79C136.893 74.32 136.758 69.065 138.626 64.282C139.435 62.209 142.103 61.519 143.851 62.882C145.072 63.835 145.441 65.516 144.899 66.964C143.676 70.237 143.78 73.867 145.203 77.065L146.634 80.281C148.658 84.831 148.773 89.999 146.95 94.635C146.154 96.659 143.617 97.377 141.867 96.087C140.614 95.163 140.214 93.46 140.733 92.006C141.92 88.677 141.795 84.999 140.382 81.765L139 79Z" fill="#C98D59"/>
+    <path d="M160 90C157.893 85.32 157.758 80.065 159.626 75.282C160.435 73.209 163.103 72.519 164.851 73.882C166.072 74.835 166.441 76.516 165.899 77.964C164.676 81.237 164.78 84.867 166.203 88.065L167.634 91.281C169.658 95.831 169.773 100.999 167.95 105.635C167.154 107.659 164.617 108.377 162.867 107.087C161.614 106.163 161.214 104.46 161.733 103.006C162.92 99.677 162.795 95.999 161.382 92.765L160 90Z" fill="#C98D59"/>
+    <path d="M74 228C87.579 214.96 106.823 208 126.934 208H153.066C173.177 208 192.421 214.96 206 228V228H74V228Z" fill="#F7E3C3"/>
+    <rect x="73" y="233" width="134" height="12" rx="6" fill="#EAC89B"/>
+    <text x="140" y="258" fill="#7B5231" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" text-anchor="middle">Buy me a coffee</text>
+    <text x="140" y="282" fill="#A2704A" font-family="Segoe UI, Arial, sans-serif" font-size="12" text-anchor="middle">Replace this image with your own QR card if needed</text>
+  </g>
+</svg>

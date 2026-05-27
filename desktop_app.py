@@ -91,6 +91,9 @@ def load_ui_html():
         "./assets/obsidian.png": to_data_uri("obsidian.png"),
         "./assets/tree-expand.svg": to_data_uri("tree-expand.svg"),
         "./assets/tree-collapse.svg": to_data_uri("tree-collapse.svg"),
+        "./assets/weixin.jpg": to_data_uri("weixin.jpg"),
+        "./assets/zhifubao.jpg": to_data_uri("zhifubao.jpg"),
+        "./assets/咖啡.png": to_data_uri("咖啡.png"),
     }
 
     html = index_html.replace(
@@ -974,6 +977,7 @@ class DesktopApi:
             "hasReencryptGlobalPassword": bool(config.get("reencryptGlobalPassword")),
             "complexBlockMode": config.get("complexBlockMode") or "",
             "assetLayout": config.get("assetLayout") or "",
+            "forceReauth": bool(config.get("forceReauth")),
             "hasJobControlPath": bool(config.get("jobControlPath")),
             "encryptedPasswordCount": len(encrypted_passwords),
         }
@@ -1137,9 +1141,9 @@ def main():
         "语雀导出到 Obsidian",
         html=ui_html,
         js_api=api,
-        width=1480,
-        height=960,
-        min_size=(1260, 820),
+        width=1900,
+        height=1040,
+        min_size=(1500, 860),
         text_select=True,
     )
     api.attach_window(window)

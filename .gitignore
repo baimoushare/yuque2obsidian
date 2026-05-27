@@ -35,3 +35,7 @@ __pycache__/
 *.pyc
 desktop.settings.json
 desktop-launch.log
+
+# local runtime artifacts
+/.yuque-login-profile
+/crash-reports
