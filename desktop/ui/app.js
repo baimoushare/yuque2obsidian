@@ -1031,7 +1031,15 @@ function pollJob(jobId) {
     } else if (job.status === 'error' || job.status === 'cancelled') {
       clearPollTimer();
       finalizeJobState(job);
-      renderStatus(job.error || (job.status === 'cancelled' ? '任务已停止' : '任务失败'));
+      if (job.kind === 'login' && job.status === 'cancelled') {
+        // 切换账号过程中用户关闭登录浏览器，视为主动取消：
+        // 刷新账号状态并恢复按钮可点击，不把界面停留在“登录中”。
+        await refreshLoginStatus();
+        state.loginWasAlreadyAuthenticated = Boolean(state.loginUser);
+        renderStatus(job.result?.message || '已取消切换账号，可继续使用当前账号。');
+      } else {
+        renderStatus(job.error || job.result?.message || (job.status === 'cancelled' ? '任务已停止' : '任务失败'));
+      }
     }
   }, 900);
 }
@@ -1377,5 +1385,4 @@ function setupTransientShellScrollbar() {
   document.documentElement.classList.add('show-shell-scrollbar');
   document.body.classList.add('show-shell-scrollbar');
 }
-
 

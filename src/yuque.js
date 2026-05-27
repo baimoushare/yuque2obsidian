@@ -341,22 +341,29 @@ async function tryReuseBrowserSession(page, options = {}) {
 }
 
 export async function runManualLogin(options = {}, onEvent = () => {}, runOptions = {}) {
-  const previousUser = await tryFetchUserFromCookieFile(options.cookiePath);
+  const previousCookies = loadCookies(options.cookiePath);
+  const previousUser = await tryFetchUserFromCookies(previousCookies);
 
   // forceReauth 表示用户明确点击“切换账号”。
   // 此时不能复用旧 cookie 或浏览器会话，必须走完整重新登录流程。
   if (runOptions.forceReauth) {
     clearLoginSessionArtifacts(options, onEvent);
-  } else {
-    const existingUser = previousUser;
-    if (existingUser) {
-      return {
-        cookieCount: loadCookies(options.cookiePath).length,
-        user: existingUser,
-        source: 'cookie-file',
-      };
-    }
+  } else if (previousUser) {
+    return {
+      cookieCount: previousCookies.length,
+      user: previousUser,
+      source: 'cookie-file',
+    };
   }
+
+  const restorePreviousSessionAfterCancel = () => {
+    // 切换账号时如果用户直接关闭登录浏览器，需要恢复原 cookies.json。
+    // 否则一次取消操作会让当前账号也变成不可用状态。
+    if (runOptions.forceReauth && previousCookies.length > 0) {
+      saveCookies(options.cookiePath, previousCookies);
+      emitAuthEvent(onEvent, '已恢复原登录会话，可继续使用当前账号。');
+    }
+  };
 
   const resolvedBrowserPath = options.browserPath || resolveSystemBrowserExecutable();
   emitAuthEvent(
@@ -402,8 +409,9 @@ export async function runManualLogin(options = {}, onEvent = () => {}, runOption
     emitAuthEvent(onEvent, 'Opening the Yuque login page...');
     await openLoginPage(page);
     emitAuthEvent(onEvent, 'Yuque login page opened. Waiting for sign-in to finish...');
+
     let hasIgnoredPreviousUserSession = false;
-    const cookies = await waitForManualLogin(page, {
+    const loginWait = waitForManualLogin(page, {
       timeoutMs: options.timeoutMs,
       pollMs: options.pollMs,
       validateLogin: async (nextCookies) => {
@@ -425,8 +433,39 @@ export async function runManualLogin(options = {}, onEvent = () => {}, runOption
         saveCookies(options.cookiePath, nextCookies);
         return { ok: true, cookies: nextCookies, user: nextUser };
       },
+    }).then(
+      (cookies) => ({ status: 'success', cookies }),
+      (error) => {
+        const message = String(error?.message || error || '');
+        const closedByUser = /Target closed|Session closed|Protocol error|browser has disconnected|Connection closed/i.test(message);
+        if (closedByUser) {
+          return { status: 'cancelled', message: '已取消切换账号，可继续使用当前账号。' };
+        }
+        throw error;
+      },
+    );
+
+    const browserClosed = new Promise((resolve) => {
+      browser.once('disconnected', () => {
+        resolve({ status: 'cancelled', message: '已取消切换账号，可继续使用当前账号。' });
+      });
     });
 
+    const loginResult = await Promise.race([loginWait, browserClosed]);
+    if (loginResult.status === 'cancelled') {
+      restorePreviousSessionAfterCancel();
+      return {
+        type: 'result',
+        status: 'cancelled',
+        cancelled: true,
+        restoredPreviousSession: Boolean(previousUser),
+        user: previousUser || null,
+        message: loginResult.message,
+        source: 'browser-cancelled',
+      };
+    }
+
+    const cookies = loginResult.cookies;
     const validated = await persistCookiesAndReadUser(options.cookiePath, cookies);
     const user = validated?.user ?? (await tryFetchUserFromCookieFile(options.cookiePath));
     if (!user) {
@@ -440,7 +479,7 @@ export async function runManualLogin(options = {}, onEvent = () => {}, runOption
       source: 'browser-login',
     };
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
   }
 }
 
