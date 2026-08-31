@@ -47,6 +47,8 @@ export function parseCliConfig(rawConfig) {
     reencryptEncryptedBlocksMode: normalizeReencryptMode(parsed.reencryptEncryptedBlocksMode || 'off'),
     reencryptGlobalPassword: parsed.reencryptGlobalPassword || '',
     complexBlockMode: parsed.complexBlockMode || 'auto',
+    diagramExportMode: parsed.diagramExportMode || 'auto',
+    diagramSnapshotMode: parsed.diagramSnapshotMode || 'fallback-only',
     assetLayout: parsed.assetLayout || 'book_assets',
     // 桌面端点击“切换账号”时会传入该标记。
     // 这里必须保留下来，否则后续 runManualLogin 会误以为是普通登录，

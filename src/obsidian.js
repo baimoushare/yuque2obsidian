@@ -82,6 +82,53 @@ export function getDefaultObsidianCliPath() {
   return candidates.find((candidate) => fs.existsSync(candidate)) || '';
 }
 
+/**
+ * 只读检测当前 Vault 的图形能力。导出核心据此选择格式，绝不在这里静默安装插件。
+ */
+export function detectObsidianDiagramCapabilities(options = {}) {
+  const vaultPath = String(options.vaultPath || '').trim();
+  const cliPath = options.cliPath || getDefaultObsidianCliPath();
+  const result = {
+    vaultPath,
+    cliPath,
+    obsidianCli: false,
+    markmap: false,
+    excalidraw: false,
+    excalidrawExtras: false,
+    enabledPluginIds: [],
+  };
+
+  if (!vaultPath || !fs.existsSync(vaultPath)) {
+    return result;
+  }
+
+  const pluginsRoot = path.join(vaultPath, '.obsidian', 'plugins');
+  const enabledPath = path.join(vaultPath, '.obsidian', 'community-plugins.json');
+  let enabled = [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(enabledPath, 'utf8'));
+    enabled = Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  } catch {
+    enabled = [];
+  }
+
+  result.enabledPluginIds = enabled;
+  const isAvailable = (id) => enabled.includes(id) && fs.existsSync(path.join(pluginsRoot, id));
+  result.markmap = isAvailable('obsidian-mindmap-nextgen');
+  result.excalidraw = isAvailable('obsidian-excalidraw-plugin');
+  result.excalidrawExtras = isAvailable('excalidraw-extras');
+
+  if (cliPath && fs.existsSync(cliPath)) {
+    try {
+      result.obsidianCli = Boolean(resolveObsidianVaultName(cliPath, vaultPath));
+    } catch {
+      result.obsidianCli = false;
+    }
+  }
+
+  return result;
+}
+
 export function buildObsidianCliCommand(command, options = {}) {
   const args = [];
   if (options.vaultName) {

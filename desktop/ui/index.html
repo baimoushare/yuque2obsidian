@@ -198,6 +198,24 @@
                     </div>
 
                     <label class="full-span">
+                      <span class="field-label">
+                        <span class="config-subsection-title">图形导出</span>
+                        <span class="hint-badge" tabindex="0" aria-label="查看图形导出模式说明">
+                          ?
+                          <span class="hint-tooltip">自动推荐会按图形复杂度选择 Markmap、Mermaid、Excalidraw 或 PNG；可编辑增强模式只在已检测到对应 Obsidian 插件时启用。</span>
+                        </span>
+                      </span>
+                      <div class="select-shell">
+                        <select id="diagram-export-mode">
+                          <option value="auto">自动推荐</option>
+                          <option value="portable">通用兼容（不依赖图形插件）</option>
+                          <option value="obsidian-editable">Obsidian 可编辑增强</option>
+                        </select>
+                        <span class="select-chevron" aria-hidden="true"></span>
+                      </div>
+                    </label>
+
+                    <label class="full-span">
                       <span class="config-subsection-title">数据表设置</span>
                       <div class="select-shell">
                         <select id="obsidian-setup-mode">

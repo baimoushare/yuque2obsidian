@@ -413,7 +413,9 @@ class DesktopApi:
     def loadSettings(self):
         if not SETTINGS_FILE.exists():
             return self._default_settings()
-        loaded = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        # 兼容 Windows 工具曾写入的 UTF-8 BOM；否则合法 JSON 会在首字符解析失败，
+        # 进而使桌面端无法加载包括“图形导出”在内的全部配置。
+        loaded = json.loads(SETTINGS_FILE.read_text(encoding="utf-8-sig"))
         return self._normalize_settings(loaded or {})
 
     def saveSettings(self, settings):
@@ -675,6 +677,8 @@ class DesktopApi:
             "reencryptEncryptedBlocksMode": "global",
             "reencryptGlobalPassword": "",
             "complexBlockMode": "auto",
+            "diagramExportMode": "auto",
+            "diagramSnapshotMode": "fallback-only",
             "assetLayout": "book_assets",
             "jobControlPath": "",
         }
@@ -693,6 +697,8 @@ class DesktopApi:
         )
         merged["reencryptGlobalPassword"] = str(merged.get("reencryptGlobalPassword") or "")
         merged["complexBlockMode"] = self._normalize_complex_block_mode(merged.get("complexBlockMode"))
+        merged["diagramExportMode"] = self._normalize_diagram_export_mode(merged.get("diagramExportMode"))
+        merged["diagramSnapshotMode"] = self._normalize_diagram_snapshot_mode(merged.get("diagramSnapshotMode"))
         return merged
 
     def _normalize_cookie_path(self, cookie_path):
@@ -735,6 +741,18 @@ class DesktopApi:
         if normalized in {"snapshot-first", "structured-first", "skip", "auto"}:
             return normalized
         return "auto"
+
+    def _normalize_diagram_export_mode(self, value):
+        normalized = str(value or "").strip().lower()
+        if normalized in {"auto", "portable", "obsidian-editable"}:
+            return normalized
+        return "auto"
+
+    def _normalize_diagram_snapshot_mode(self, value):
+        normalized = str(value or "").strip().lower()
+        if normalized in {"disabled", "fallback-only", "supplemental"}:
+            return normalized
+        return "fallback-only"
 
     def _normalize_reencrypt_mode(self, value):
         normalized = str(value or "").strip().lower()
@@ -976,6 +994,8 @@ class DesktopApi:
             "reencryptEncryptedBlocksMode": config.get("reencryptEncryptedBlocksMode") or "off",
             "hasReencryptGlobalPassword": bool(config.get("reencryptGlobalPassword")),
             "complexBlockMode": config.get("complexBlockMode") or "",
+            "diagramExportMode": config.get("diagramExportMode") or "",
+            "diagramSnapshotMode": config.get("diagramSnapshotMode") or "",
             "assetLayout": config.get("assetLayout") or "",
             "forceReauth": bool(config.get("forceReauth")),
             "hasJobControlPath": bool(config.get("jobControlPath")),

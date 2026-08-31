@@ -40,6 +40,7 @@ const elements = {
   failureCsvPath: $('#failure-csv-path'),
   obsidianVaultPath: $('#obsidian-vault-path'),
   obsidianSetupMode: $('#obsidian-setup-mode'),
+  diagramExportMode: $('#diagram-export-mode'),
   vaultExportLayout: $('#vault-export-layout'),
   vaultExportSubdir: $('#vault-export-subdir'),
   encryptedPasswords: $('#encrypted-passwords'),
@@ -177,6 +178,7 @@ function fillSettings(settings) {
   elements.failureCsvPath.value = settings.failureCsvPath || '';
   elements.obsidianVaultPath.value = settings.obsidianVaultPath || '';
   elements.obsidianSetupMode.value = settings.obsidianSetupMode || 'none';
+  elements.diagramExportMode.value = settings.diagramExportMode || 'auto';
   elements.vaultExportLayout.value = settings.vaultExportLayout || 'output-only';
   elements.vaultExportSubdir.value = settings.vaultExportSubdir || '';
   elements.encryptedPasswords.value = normalizePasswordList(settings.encryptedBlockPasswords, settings.encryptedBlockPassword);
@@ -200,6 +202,7 @@ function readSettings() {
     failureCsvPath: elements.failureCsvPath.value.trim(),
     obsidianVaultPath: elements.obsidianVaultPath.value.trim(),
     obsidianSetupMode: elements.obsidianSetupMode.value,
+    diagramExportMode: elements.diagramExportMode.value,
     vaultExportLayout: elements.vaultExportLayout.value,
     vaultExportSubdir: elements.vaultExportSubdir.value.trim(),
     encryptedBlockPasswords,
@@ -211,6 +214,7 @@ function readSettings() {
     incrementalExport: elements.incrementalExport.checked,
     datatableExportMode: 'structured-first',
     complexBlockMode: 'auto',
+    diagramSnapshotMode: 'fallback-only',
     assetLayout: 'book_assets',
   };
 }
@@ -1385,4 +1389,3 @@ function setupTransientShellScrollbar() {
   document.documentElement.classList.add('show-shell-scrollbar');
   document.body.classList.add('show-shell-scrollbar');
 }
-

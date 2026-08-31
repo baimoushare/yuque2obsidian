@@ -10,21 +10,16 @@ import { FailureCsvLogger, localizeFailureRecord } from './failure-log.js';
 import { isLikelyAttachment, processMarkdown } from './markdown.js';
 import {
   buildObsidianConfigSummary,
+  detectObsidianDiagramCapabilities,
   executeObsidianSetup,
   resolveContentOutputDir,
   writeObsidianSetupJson,
   writeObsidianSetupNote,
 } from './obsidian.js';
 import { filterBooks, getAllBooks, serializeBooks } from './toc.js';
-import {
-  analyzeFlowchartDiagram,
-  analyzeMindmapDiagram,
-  buildJsonCanvasDocument,
-  extractBoardsFromDocDetail,
-  isBoardDocument,
-  renderFlowchartMermaid,
-  renderMindmapMarkdown,
-} from './board.js';
+import { extractBoardsFromDocDetail, isBoardDocument } from './board.js';
+import { createBoardManifest, createBoardRenderPlan, normalizeDiagramExportMode, normalizeDiagramSnapshotMode } from './board-render.js';
+import { readExcalidrawScene, validateExcalidrawScene, writeExcalidrawDrawing } from './excalidraw.js';
 import {
   createHttpClient,
   fetchAllTableRecords,
@@ -270,6 +265,9 @@ export async function exportBooks(config, emit = () => {}) {
 
   const exportPlan = buildExportPlan(books, contentOutputDir, createSelectionMatcher(config));
   config.complexBlockMode = resolveComplexBlockMode(config);
+  config.diagramExportMode = normalizeDiagramExportMode(config.diagramExportMode);
+  config.diagramSnapshotMode = normalizeDiagramSnapshotMode(config.diagramSnapshotMode);
+  config.diagramCapabilities = detectObsidianDiagramCapabilities({ vaultPath: config.obsidianVaultPath });
   const docLinkMap = buildDocLinkIndex(exportPlan.documents, contentOutputDir);
 
   exportState.saveMeta({
@@ -675,6 +673,11 @@ export async function exportBooks(config, emit = () => {}) {
 
           if (!skipGenericArtifactCapture && primaryOutputKind !== 'base') {
             preparedBoards = prepareStructuredBoards(docDetail, docPlan, bookPlan, config);
+            const standaloneExcalidraw = resolveStandaloneExcalidrawPrimary(docExportRoute, preparedBoards);
+            if (standaloneExcalidraw) {
+              primaryOutputPath = standaloneExcalidraw.excalidrawPath;
+              primaryOutputKind = 'excalidraw';
+            }
             complexArtifactPlan = planComplexArtifactWork({
               markdown,
               rewrittenMarkdown,
@@ -762,7 +765,12 @@ export async function exportBooks(config, emit = () => {}) {
             }
           }
 
-          currentPhase = primaryOutputKind === 'base' ? 'write-base' : 'write-markdown';
+          currentPhase =
+            primaryOutputKind === 'base'
+              ? 'write-base'
+              : primaryOutputKind === 'excalidraw'
+                ? 'write-excalidraw'
+                : 'write-markdown';
           emit(buildDocEvent({
             bookPlan,
             docPlan,
@@ -770,7 +778,12 @@ export async function exportBooks(config, emit = () => {}) {
             totalDocuments: exportPlan.documents.length,
             bookCompleted: bookContext.completed,
             bookTotal: bookContext.total,
-            message: primaryOutputKind === 'base' ? 'Writing Obsidian Base file...' : 'Writing markdown file...',
+            message:
+              primaryOutputKind === 'base'
+                ? 'Writing Obsidian Base file...'
+                : primaryOutputKind === 'excalidraw'
+                  ? 'Writing Excalidraw drawing...'
+                  : 'Writing markdown file...',
           }));
           recordArtifactExportWarnings(artifacts, recordDocIssue);
           recordDatatableExportWarnings(artifacts.datatables, recordDocIssue);
@@ -781,6 +794,10 @@ export async function exportBooks(config, emit = () => {}) {
             }
             if (primaryOutputPath !== docPlan.targetMdPath) {
               removeIfExists(docPlan.targetMdPath);
+            }
+          } else if (primaryOutputKind === 'excalidraw') {
+            if (!fs.existsSync(primaryOutputPath)) {
+              throw new Error(`The standalone Excalidraw drawing was not written: ${primaryOutputPath}`);
             }
           } else {
             const encryptedBlockRenderPlan = await buildEncryptedBlockRenderPlan(artifacts, {
@@ -1096,6 +1113,8 @@ export async function exportMarkDownFiles() {
     reencryptGlobalPassword: process.env.REENCRYPT_GLOBAL_PASSWORD || '',
     datatableExportMode: 'structured-first',
     complexBlockMode: 'auto',
+    diagramExportMode: process.env.DIAGRAM_EXPORT_MODE || 'auto',
+    diagramSnapshotMode: process.env.DIAGRAM_SNAPSHOT_MODE || 'fallback-only',
     assetLayout: 'book_assets',
     jobControlPath: '',
   };
@@ -1108,6 +1127,14 @@ export async function exportMarkDownFiles() {
 
 export function resolveComplexBlockMode(config) {
   return normalizeComplexBlockModeValue(config?.complexBlockMode || 'auto');
+}
+
+function resolveBoardSnapshotMode(options = {}) {
+  if (normalizeComplexBlockModeValue(options?.complexBlockMode) === 'skip') {
+    return 'disabled';
+  }
+  const configured = String(options?.diagramSnapshotMode || '').trim().toLowerCase();
+  return ['disabled', 'fallback-only', 'supplemental'].includes(configured) ? configured : 'fallback-only';
 }
 
 function normalizeComplexBlockModeValue(value) {
@@ -1634,24 +1661,6 @@ function hasLikelyEncryptedCardMarkup(docDetail) {
   );
 }
 
-function resolveBoardPngPreference(complexBlockMode) {
-  const mode = normalizeComplexBlockModeValue(complexBlockMode);
-  if (mode === 'skip') {
-    return 'disabled';
-  }
-  if (mode === 'structured-first') {
-    return 'fallback-only';
-  }
-  return 'supplemental';
-}
-
-function shouldRequestBoardPngCapture(structuredExport, pngPreference) {
-  if (pngPreference === 'disabled') {
-    return false;
-  }
-  return true;
-}
-
 export function prepareStructuredBoards(docDetail, docPlan, bookPlan, options = {}) {
   const sourceBoards = extractBoardsFromDocDetail(docDetail);
   if (sourceBoards.length === 0) {
@@ -1659,70 +1668,77 @@ export function prepareStructuredBoards(docDetail, docPlan, bookPlan, options = 
   }
 
   const documentDir = ensureDir(path.join(bookPlan.assets.boards, buildBoardDocumentDirName(bookPlan, docPlan)));
-  const pngPreference = resolveBoardPngPreference(options.complexBlockMode);
   const exported = [];
 
   for (const [index, sourceBoard] of sourceBoards.entries()) {
-    const mindmapAnalysis = analyzeMindmapDiagram(sourceBoard.diagramData);
-    const flowchartAnalysis = mindmapAnalysis.isPureMindmap
-      ? null
-      : analyzeFlowchartDiagram(sourceBoard.diagramData);
     const files = writeBoardSidecarFiles(sourceBoard.diagramData, documentDir, index);
-    let markdown = '';
-    let mermaid = '';
-    let canvasDocument = null;
-    let structuredExport = false;
-    let detectedKind = 'board';
-    let structuredFormat = '';
-    let partialStructured = false;
-    let ignoredElementCount = 0;
-    let failureReason = 'unsupported-board-structure';
-
-    if (mindmapAnalysis.isPureMindmap) {
-      markdown = renderMindmapMarkdown(mindmapAnalysis.roots);
-      if (markdown) {
-        canvasDocument = buildJsonCanvasDocument(mindmapAnalysis.roots);
-        if (canvasDocument.nodes.length > 0) {
-          writeJson(files.canvasPath, canvasDocument);
-          structuredExport = true;
-          detectedKind = 'mindmap';
-          structuredFormat = 'mindmap-markdown';
-          failureReason = '';
-        }
-      }
-    } else if (flowchartAnalysis?.isFlowchart) {
-      mermaid = renderFlowchartMermaid(flowchartAnalysis);
-      structuredExport = Boolean(mermaid);
-      detectedKind = 'flowchart';
-      structuredFormat = structuredExport ? 'mermaid-flowchart' : '';
-      partialStructured = Boolean(flowchartAnalysis.partialStructured);
-      ignoredElementCount = Number(flowchartAnalysis.ignoredElementCount || 0);
-      failureReason = structuredExport ? '' : flowchartAnalysis.reason || 'unsupported-board-structure';
-    } else {
-      detectedKind = 'board';
-      partialStructured = Boolean(flowchartAnalysis?.partialStructured);
-      ignoredElementCount = Number(flowchartAnalysis?.ignoredElementCount || 0);
-      failureReason =
-        flowchartAnalysis?.reason || mindmapAnalysis.reason || 'unsupported-board-structure';
+    const renderPlan = createBoardRenderPlan(sourceBoard.diagramData, {
+      diagramExportMode: options.diagramExportMode,
+      diagramSnapshotMode: resolveBoardSnapshotMode(options),
+      capabilities: options.diagramCapabilities,
+      // 直接调用旧 API 的第三方脚本继续获得 Canvas 侧车；桌面端新配置会显式传入模式，默认不再制造额外 Canvas。
+      emitCanvasCompatibility: options.emitCanvasCompatibility === true || options.diagramExportMode === undefined,
+    });
+    if (renderPlan.canvasDocument) {
+      writeJson(files.canvasPath, renderPlan.canvasDocument);
     }
+    const sourceHash = crypto.createHash('sha256').update(JSON.stringify(sourceBoard.diagramData)).digest('hex');
+    const excalidrawResult = renderPlan.excalidrawRequested
+      ? persistBoardExcalidrawArtifact({
+          sourceBoard,
+          renderPlan,
+          files,
+          docPlan,
+          sourceHash,
+          index,
+        })
+      : null;
+    if (excalidrawResult?.path) {
+      renderPlan.structuredExport = true;
+      renderPlan.structuredFormat = 'excalidraw-flowchart';
+      renderPlan.primaryFormat = 'excalidraw';
+      renderPlan.excalidrawPath = excalidrawResult.path;
+      renderPlan.excalidrawStatus = excalidrawResult.status;
+      renderPlan.warnings.push(...excalidrawResult.warnings);
+    }
+    const manifest = createBoardManifest(renderPlan, {
+      sourceHash,
+      generatedHash: excalidrawResult?.generatedHash || '',
+      sourceType: sourceBoard.sourceType,
+      title: resolveStructuredBoardTitle(sourceBoard, renderPlan.ir.kind, index),
+      generatedFiles: [
+        files.jsonPath,
+        ...(renderPlan.canvasDocument ? [files.canvasPath] : []),
+        ...(excalidrawResult?.path ? [excalidrawResult.path] : []),
+      ],
+    });
+    writeJson(files.manifestPath, manifest);
 
     exported.push({
       index,
-      title: resolveStructuredBoardTitle(sourceBoard, detectedKind, index),
+      title: resolveStructuredBoardTitle(sourceBoard, renderPlan.ir.kind, index),
       sourceType: sourceBoard.sourceType,
       diagramData: sourceBoard.diagramData,
-      isPureMindmap: mindmapAnalysis.isPureMindmap,
-      detectedKind,
-      structuredFormat,
-      structuredExport,
-      failureReason,
-      markdown,
-      mermaid,
-      canvasDocument,
-      partialStructured,
-      ignoredElementCount,
+      boardIR: renderPlan.ir,
+      classification: renderPlan.classification,
+      primaryFormat: renderPlan.primaryFormat,
+      isPureMindmap: renderPlan.ir.kind === 'mindmap',
+      detectedKind: renderPlan.ir.kind,
+      structuredFormat: renderPlan.structuredFormat,
+      structuredExport: renderPlan.structuredExport,
+      failureReason: renderPlan.failureReason,
+      markdown: renderPlan.markdown,
+      mermaid: renderPlan.mermaid,
+      canvasDocument: renderPlan.canvasDocument,
+      partialStructured: renderPlan.partialStructured,
+      ignoredElementCount: renderPlan.ignoredElementCount,
+      fallbackRequired: renderPlan.fallbackRequired,
+      excalidrawRequested: renderPlan.excalidrawRequested,
+      excalidrawPath: excalidrawResult?.path || '',
+      excalidrawStatus: excalidrawResult?.status || '',
+      warnings: renderPlan.warnings,
       files,
-      pngRequested: shouldRequestBoardPngCapture(structuredExport, pngPreference),
+      pngRequested: renderPlan.pngRequested,
       pngOptional: false,
       pngCaptured: false,
       pngCaptureError: '',
@@ -6351,10 +6367,14 @@ async function capturePreparedBoardPngs(page, boards = []) {
       board.pngCaptured = Boolean(pngPath && fs.existsSync(pngPath));
       board.pngCaptureError = '';
     } catch (error) {
-      removeIfExists(board.files?.pngPath);
       board.pngCaptured = false;
       board.pngCaptureError = errorToMessage(error);
+      board.pngStale = Boolean(board.files?.pngPath && fs.existsSync(board.files.pngPath));
     }
+
+    // PNG 由浏览器工作线程异步生成，初始 manifest 创建时尚不存在该文件。
+    // 截图完成（或复用旧快照）后立即补齐清单，避免用户排查产物时误以为快照缺失。
+    refreshBoardManifestAfterPngCapture(board);
 
     capturedBoards.push(board);
   }
@@ -7604,6 +7624,22 @@ function buildBoardDocumentMarkdown(docPlan, docDetail = {}) {
   return `# ${title}\n`;
 }
 
+function resolveStandaloneExcalidrawPrimary(docExportRoute, boards = []) {
+  if (docExportRoute !== 'export-board' || !Array.isArray(boards) || boards.length !== 1) {
+    return null;
+  }
+  const [board] = boards;
+  if (
+    String(board?.sourceType || '') !== 'board-document' ||
+    String(board?.primaryFormat || '') !== 'excalidraw' ||
+    !board?.excalidrawPath ||
+    !fs.existsSync(board.excalidrawPath)
+  ) {
+    return null;
+  }
+  return board;
+}
+
 async function persistStructuredBoards(page, docDetail, docPlan, bookPlan, options = {}) {
   const boards = prepareStructuredBoards(docDetail, docPlan, bookPlan, options);
   if (!Array.isArray(boards) || boards.length === 0) {
@@ -7627,15 +7663,139 @@ function writeBoardSidecarFiles(diagramData, documentDir, index) {
   const jsonPath = path.join(documentDir, `${baseName}.yuque.json`);
   const canvasPath = path.join(documentDir, `${baseName}.canvas`);
   const pngPath = path.join(documentDir, `${baseName}.png`);
+  const manifestPath = path.join(documentDir, `${baseName}.manifest.json`);
   writeJson(jsonPath, diagramData);
-  removeIfExists(canvasPath);
-  removeIfExists(pngPath);
   return {
     dir: documentDir,
     jsonPath,
     canvasPath,
     pngPath,
+    manifestPath,
   };
+}
+
+/**
+ * 只覆盖“上一版由本程序生成且尚未被人工改动”的 Excalidraw 文件。
+ * 任何无法确认归属的同名文件都视为人工成果，转而输出 yuque-update 版本。
+ */
+function persistBoardExcalidrawArtifact({ sourceBoard, renderPlan, files, docPlan, sourceHash, index }) {
+  const targetPath = resolveBoardExcalidrawTargetPath(sourceBoard, files, docPlan, index);
+  const previousManifest = readJsonIfExists(files.manifestPath);
+  const existingHash = hashFileIfExists(targetPath);
+  const previousGeneratedHash = String(previousManifest?.generatedHash || '');
+  const sameSource = String(previousManifest?.sourceHash || '') === sourceHash;
+  const wasGeneratedAndUnmodified = Boolean(existingHash && previousGeneratedHash && existingHash === previousGeneratedHash);
+  const warnings = [];
+
+  if (existingHash && sameSource && wasGeneratedAndUnmodified) {
+    const scene = readExcalidrawScene(targetPath, { fromFile: true });
+    const validation = validateExcalidrawScene(scene, {
+      nodeCount: renderPlan.ir.nodes.length,
+      edgeCount: renderPlan.ir.edges.length,
+    });
+    if (!validation.valid) {
+      throw new Error(`已存在的 Excalidraw 文件未通过结构校验：${validation.errors.join('；')}`);
+    }
+    return { path: targetPath, generatedHash: existingHash, status: 'unchanged', warnings };
+  }
+
+  let writePath = targetPath;
+  let allowOverwrite = false;
+  let status = 'created';
+  if (existingHash) {
+    if (wasGeneratedAndUnmodified) {
+      backupGeneratedExcalidraw(targetPath, files.dir);
+      allowOverwrite = true;
+      status = 'updated';
+    } else {
+      writePath = buildExcalidrawUpdatePath(targetPath);
+      status = 'conflict-copy';
+      warnings.push('检测到同名 Excalidraw 文件存在人工修改，已生成 yuque-update 副本，原文件未覆盖。');
+    }
+  }
+
+  const result = writeExcalidrawDrawing(writePath, renderPlan.ir, { allowOverwrite });
+  const generatedHash = hashFileIfExists(result.targetPath);
+  return { path: result.targetPath, generatedHash, status, warnings };
+}
+
+function resolveBoardExcalidrawTargetPath(sourceBoard, files, docPlan, index) {
+  if (String(sourceBoard?.sourceType || '') === 'board-document') {
+    return docPlan.targetMdPath.replace(/\.md$/i, '.excalidraw.md');
+  }
+  return path.join(files.dir, `board-${Number(index) + 1}.excalidraw.md`);
+}
+
+function buildExcalidrawUpdatePath(targetPath) {
+  const extension = '.excalidraw.md';
+  const stem = targetPath.endsWith(extension) ? targetPath.slice(0, -extension.length) : targetPath;
+  const initial = `${stem}.yuque-update${extension}`;
+  if (!fs.existsSync(initial)) {
+    return initial;
+  }
+  return `${stem}.yuque-update-${formatTimestamp()}${extension}`;
+}
+
+function backupGeneratedExcalidraw(targetPath, documentDir) {
+  const historyDir = ensureDir(path.join(documentDir, 'history'));
+  const baseName = path.basename(targetPath).replace(/\.excalidraw\.md$/i, '');
+  const backupPath = path.join(historyDir, `${baseName}-${formatTimestamp()}.excalidraw.md`);
+  fs.copyFileSync(targetPath, backupPath);
+  return backupPath;
+}
+
+function readJsonIfExists(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function hashFileIfExists(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return '';
+  }
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+/**
+ * 将截图工作线程后产生的 PNG 状态同步回画板清单。
+ * 清单采用追加式文件记录：不因一次截图失败而删除历史快照记录。
+ */
+export function refreshBoardManifestAfterPngCapture(board = {}) {
+  const manifestPath = String(board?.files?.manifestPath || '').trim();
+  if (!manifestPath || !fs.existsSync(manifestPath)) {
+    return null;
+  }
+
+  const manifest = readJsonIfExists(manifestPath);
+  if (!manifest) {
+    return null;
+  }
+
+  const generatedFiles = new Set(
+    (Array.isArray(manifest.generatedFiles) ? manifest.generatedFiles : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  );
+  const pngPath = String(board?.files?.pngPath || '').trim();
+  if (pngPath && fs.existsSync(pngPath)) {
+    generatedFiles.add(pngPath);
+  }
+
+  manifest.generatedFiles = [...generatedFiles];
+  manifest.png = {
+    requested: Boolean(board?.pngRequested),
+    captured: Boolean(board?.pngCaptured),
+    stale: Boolean(board?.pngStale),
+    error: String(board?.pngCaptureError || ''),
+  };
+  writeJson(manifestPath, manifest);
+  return manifest;
 }
 
 async function captureBoardPng(page, boardIndex, targetPath) {
@@ -9735,7 +9895,7 @@ function renderBoardMarkdownSection(board, targetMdPath, options = {}) {
   }
 
   if (board.structuredExport) {
-    output += `${renderStructuredBoardBody(board, { inline: false })}\n`;
+    output += `${renderStructuredBoardBody(board, { inline: false, targetMdPath, hasPng })}\n`;
   } else if (hasPng) {
     output += `![画板导出预览](${relativeMarkdownPath(targetMdPath, board.files.pngPath)})\n`;
   } else {
@@ -9750,6 +9910,18 @@ function renderBoardMarkdownSection(board, targetMdPath, options = {}) {
 }
 
 function renderStructuredBoardBody(board, options = {}) {
+  if (board?.primaryFormat === 'excalidraw' && board?.excalidrawPath) {
+    const parts = [];
+    if (options.hasPng && options.targetMdPath) {
+      parts.push(`![流程图预览](${relativeMarkdownPath(options.targetMdPath, board.files.pngPath)})`);
+    }
+    if (options.targetMdPath) {
+      parts.push(`[打开可编辑流程图](${relativeMarkdownPath(options.targetMdPath, board.excalidrawPath)})`);
+    } else {
+      parts.push('> 已生成可编辑 Excalidraw 流程图。');
+    }
+    return parts.join('\n\n');
+  }
   if (board?.detectedKind === 'flowchart' && board?.mermaid) {
     if (options.inline) {
       return `\`\`\`mermaid\n${board.mermaid}\n\`\`\``;
@@ -9767,7 +9939,7 @@ function renderStructuredBoardBody(board, options = {}) {
 
 function renderInlineBoardMarkdown(board, targetMdPath, sourceDocUrl, hasPng) {
   const sections = [];
-  const structuredBody = renderStructuredBoardBody(board, { inline: true });
+  const structuredBody = renderStructuredBoardBody(board, { inline: true, targetMdPath, hasPng });
   if (structuredBody) {
     sections.push(structuredBody);
   } else if (hasPng) {
