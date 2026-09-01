@@ -318,23 +318,75 @@
       </section>
     </main>
 
-    <div class="coffee-float">
-      <button class="coffee-trigger" type="button" aria-label="查看咖啡图片">
-        <img class="coffee-trigger-image" src="./assets/咖啡.png" alt="" aria-hidden="true" />
-      </button>
-      <div class="coffee-popover" role="tooltip" aria-label="收款码预览">
-        <div class="coffee-popover-title">请作者喝杯咖啡</div>
-        <div class="coffee-gallery">
-          <figure class="coffee-card">
-            <img class="coffee-image" src="./assets/weixin.jpg" alt="微信收款码" />
-            <figcaption class="coffee-caption">微信</figcaption>
-          </figure>
-          <figure class="coffee-card">
-            <img class="coffee-image" src="./assets/zhifubao.jpg" alt="支付宝收款码" />
-            <figcaption class="coffee-caption">支付宝</figcaption>
-          </figure>
+    <div class="floating-tools" aria-label="辅助工具">
+      <div class="coffee-float">
+        <button class="coffee-trigger" type="button" aria-label="查看咖啡图片">
+          <img class="coffee-trigger-image" src="./assets/咖啡.png" alt="" aria-hidden="true" />
+        </button>
+        <div class="coffee-popover" role="tooltip" aria-label="收款码预览">
+          <div class="coffee-popover-title">请作者喝杯咖啡</div>
+          <div class="coffee-gallery">
+            <figure class="coffee-card">
+              <img class="coffee-image" src="./assets/weixin.jpg" alt="微信收款码" />
+              <figcaption class="coffee-caption">微信</figcaption>
+            </figure>
+            <figure class="coffee-card">
+              <img class="coffee-image" src="./assets/zhifubao.jpg" alt="支付宝收款码" />
+              <figcaption class="coffee-caption">支付宝</figcaption>
+            </figure>
+          </div>
         </div>
       </div>
+      <button id="settings-trigger" class="settings-trigger" type="button" aria-label="打开设置" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.16 7.16 0 0 0-1.63-.94L14.37 2.8A.5.5 0 0 0 13.88 2h-3.76a.5.5 0 0 0-.49.41L9.27 4.93c-.58.24-1.12.56-1.63.94l-2.39-.96a.5.5 0 0 0-.61.22L2.72 8.45a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.07.63-.07.94s.03.63.07.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96c.51.38 1.05.7 1.63.94l.36 2.52a.5.5 0 0 0 .49.41h3.76a.5.5 0 0 0 .49-.41l.36-2.52c.58-.24 1.12-.56 1.63-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
+        </svg>
+      </button>
+    </div>
+
+    <div id="settings-modal" class="settings-modal" hidden aria-hidden="true">
+      <div class="settings-modal-backdrop" data-settings-close="true"></div>
+      <section id="settings-dialog" class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" tabindex="-1">
+        <header class="settings-dialog-header">
+          <div>
+            <h2 id="settings-dialog-title">设置</h2>
+            <p>自动更新不会中断正在进行的导出任务。</p>
+          </div>
+          <button id="settings-close-btn" class="settings-close-btn" type="button" aria-label="关闭设置">×</button>
+        </header>
+
+        <div class="update-setting-card">
+          <div class="update-setting-row">
+            <div>
+              <h3>自动更新</h3>
+              <p>启动后自动检查更新，发现新版后由你确认下载和安装。</p>
+            </div>
+            <label class="update-switch" aria-label="启动后自动检查更新">
+              <input id="auto-check-updates" type="checkbox" />
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <dl class="update-meta">
+            <div><dt>当前版本</dt><dd id="update-current-version">读取中…</dd></div>
+            <div><dt>上次检查</dt><dd id="update-last-checked">尚未检查</dd></div>
+          </dl>
+
+          <div id="update-status" class="update-status" role="status">尚未检查更新</div>
+          <ul id="update-notes" class="update-notes" hidden></ul>
+          <div id="update-progress-wrap" class="update-progress-wrap" hidden>
+            <div class="update-progress-track"><span id="update-progress-bar"></span></div>
+            <span id="update-progress-text">0%</span>
+          </div>
+
+          <div class="update-actions">
+            <button id="check-update-btn" class="ghost small" type="button">立即检查更新</button>
+            <button id="cancel-update-download-btn" class="ghost small" type="button" hidden>取消下载</button>
+            <button id="download-update-btn" class="secondary small" type="button" hidden>下载更新</button>
+            <button id="install-update-btn" class="primary small" type="button" hidden>下载并更新</button>
+          </div>
+        </div>
+      </section>
     </div>
 
     <script type="module" src="./app.js"></script>

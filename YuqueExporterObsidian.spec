@@ -7,7 +7,7 @@ a = Analysis(
     # Node.js 由构建脚本通过 --add-binary 注入，避免写死开发者本机路径。
     binaries=[],
     # 登录 Cookie 和本地配置必须由用户首次运行时生成，不能进入公开构建产物。
-    datas=[('desktop', 'desktop'), ('src', 'src'), ('node_modules', 'node_modules')],
+    datas=[('desktop', 'desktop'), ('src', 'src'), ('node_modules', 'node_modules'), ('package.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

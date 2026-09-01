@@ -15,6 +15,7 @@ from pathlib import Path
 import webview
 
 from desktop_retry import build_retry_export_plan
+from desktop_update import UpdateError, UpdateService, apply_update_task
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -66,6 +67,9 @@ def acquire_single_instance_guard():
 
     try:
         mutex_name = "Global\\YuqueExporterObsidianDesktop"
+        # CreateMutexW 成功创建时不保证会主动清空线程的上一次 Win32 错误码。
+        # 先清零，才能避免历史 ERROR_ALREADY_EXISTS(183) 被误判成已有实例。
+        ctypes.windll.kernel32.SetLastError(0)
         handle = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
         if not handle:
             append_launch_log("SINGLE_INSTANCE mutex creation returned an empty handle; continuing without guard.")
@@ -431,6 +435,12 @@ class DesktopApi:
     def __init__(self):
         self.window = None
         self.jobs = {}
+        packaged_app_path = Path(sys.executable).resolve() if getattr(sys, "frozen", False) else None
+        self.update_service = UpdateService(
+            user_data_dir=USER_DATA_DIR,
+            resource_dir=RESOURCE_DIR,
+            app_path=packaged_app_path,
+        )
 
     def attach_window(self, window):
         self.window = window
@@ -467,6 +477,42 @@ class DesktopApi:
         temporary.write_text(json.dumps(persisted, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temporary, SETTINGS_FILE)
         return merged
+
+    def getUpdateState(self):
+        """供前端设置弹窗读取 OTA 状态；不暴露下载地址外的敏感配置。"""
+        return self.update_service.snapshot()
+
+    def setAutoCheckUpdates(self, enabled):
+        settings = self.loadSettings()
+        settings["autoCheckUpdates"] = bool(enabled)
+        saved = self.saveSettings(settings)
+        return {"autoCheckUpdates": saved["autoCheckUpdates"], "update": self.update_service.snapshot()}
+
+    def checkForUpdates(self, force=False):
+        return self.update_service.check(bool(force))
+
+    def startUpdateDownload(self):
+        return self.update_service.start_download()
+
+    def cancelUpdateDownload(self):
+        return self.update_service.cancel_download()
+
+    def installDownloadedUpdate(self):
+        active_jobs = [job for job in self.jobs.values() if job.get("status") == "running"]
+        if active_jobs:
+            raise UpdateError("当前仍有登录、扫描或导出任务运行，请结束任务后再安装更新。")
+        result = self.update_service.prepare_apply()
+        # 给 pywebview 留出返回调用结果的时间，再由独立 helper 接管 EXE 替换。
+        threading.Timer(0.8, self._close_for_update).start()
+        return result
+
+    def _close_for_update(self):
+        self.shutdown_jobs()
+        try:
+            if self.window:
+                self.window.destroy()
+        except Exception as exc:
+            append_launch_log(f"OTA_CLOSE_WINDOW_FAILED error={exc}")
 
     def chooseOutputDir(self, currentPath=""):
         return self._choose_directory(currentPath, "选择导出目录")
@@ -515,9 +561,37 @@ class DesktopApi:
             }
 
     def scanBooks(self, config=None):
+        return self.scanBooksDetailed(config).get("books", [])
+
+    def scanBooksDetailed(self, config=None):
+        """返回扫描结果与逐知识库告警；保留 scanBooks 的数组返回以兼容旧调用。"""
         result = self._run_process_sync("scan", config or {})
         payload = result.get("payload") or {}
-        return payload.get("books", [])
+        books = payload.get("books") or []
+        warnings = payload.get("warnings") or []
+        # 部分知识库失败仍属于“扫描成功”，不会生成 crash report；
+        # 因此把脱敏后的逐库告警追加到启动日志，方便跨机器定位具体知识库。
+        for warning in warnings:
+            if isinstance(warning, dict):
+                append_launch_log(
+                    "SCAN_WARNING "
+                    + json.dumps(
+                        {
+                            "bookId": warning.get("bookId"),
+                            "bookName": warning.get("bookName"),
+                            "statusCode": warning.get("statusCode"),
+                            "category": warning.get("category"),
+                            "reason": warning.get("reason"),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+        return {
+            "books": books,
+            "warnings": warnings,
+            "totalBooks": payload.get("totalBooks", len(books) + len(warnings)),
+            "skippedBooks": payload.get("skippedBooks", len(warnings)),
+        }
 
     def startExport(self, config=None):
         running_export = next(
@@ -743,6 +817,7 @@ class DesktopApi:
             "diagramSnapshotMode": "fallback-only",
             "assetLayout": "book_assets",
             "jobControlPath": "",
+            "autoCheckUpdates": True,
         }
 
     def _normalize_settings(self, settings):
@@ -761,7 +836,20 @@ class DesktopApi:
         merged["complexBlockMode"] = self._normalize_complex_block_mode(merged.get("complexBlockMode"))
         merged["diagramExportMode"] = self._normalize_diagram_export_mode(merged.get("diagramExportMode"))
         merged["diagramSnapshotMode"] = self._normalize_diagram_snapshot_mode(merged.get("diagramSnapshotMode"))
+        merged["autoCheckUpdates"] = self._normalize_bool(merged.get("autoCheckUpdates"), True)
         return merged
+
+    def _normalize_bool(self, value, default=False):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        normalized = str(value or "").strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        return default
 
     def _normalize_cookie_path(self, cookie_path):
         default_path = USER_DATA_DIR / "cookies.json"
@@ -1120,7 +1208,12 @@ class DesktopApi:
     def _write_crash_report(self, job, command, config_summary, node_command, cli_entry, exit_code, final_payload, stdout_tail, event_tail):
         try:
             CRASH_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-            report_path = CRASH_REPORT_DIR / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{command}-{job.get('id', 'sync')[:8]}.log"
+            # 同步扫描任务的固定 ID 是 sync；仅使用秒级时间会让同一秒内的连续失败覆盖旧日志。
+            # 微秒时间加随机后缀可保证诊断快照只新增、不覆盖，也更适合被网盘或备份工具复制。
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            report_path = CRASH_REPORT_DIR / (
+                f"{timestamp}-{command}-{job.get('id', 'sync')[:8]}-{uuid.uuid4().hex[:8]}.log"
+            )
             recent_dumps = self._find_recent_crash_dumps(job.get("startedAt"))
             lines = [
                 f"timestamp={self._now_iso()}",
@@ -1220,7 +1313,31 @@ class DesktopApi:
         return str(exit_code)
 
 
+def _read_post_update_arguments():
+    try:
+        index = sys.argv.index("--post-update")
+        return sys.argv[index + 1], sys.argv[index + 2]
+    except (ValueError, IndexError):
+        return "", ""
+
+
+def _run_update_helper_if_requested():
+    try:
+        index = sys.argv.index("--apply-update")
+        task_path = sys.argv[index + 1]
+    except (ValueError, IndexError):
+        return None
+    try:
+        return apply_update_task(task_path)
+    except Exception as exc:
+        append_launch_log(f"OTA_HELPER_FAILED error={exc}")
+        return 1
+
+
 def main():
+    helper_result = _run_update_helper_if_requested()
+    if helper_result is not None:
+        return helper_result
     hide_console_window()
     if not acquire_single_instance_guard():
         return
@@ -1237,6 +1354,7 @@ def main():
     append_launch_log(f"STYLES_ENTRY_EXISTS={styles_entry.exists()}")
     append_launch_log(f"APP_JS_EXISTS={app_entry.exists()}")
     api = DesktopApi()
+    post_update_token, post_update_version = _read_post_update_arguments()
     ui_html = load_ui_html()
     append_launch_log(f"UI_HTML_LENGTH={len(ui_html)}")
     window = webview.create_window(
@@ -1253,6 +1371,17 @@ def main():
         window.events.closing += api.shutdown_jobs
     except Exception as exc:
         append_launch_log(f"WINDOW_CLOSE_HANDLER_FAILED error={exc}")
+    if post_update_token and post_update_version:
+        def report_update_health(*_):
+            try:
+                api.update_service.report_post_update_health(post_update_token, post_update_version)
+            except Exception as exc:
+                append_launch_log(f"OTA_HEALTH_MARKER_FAILED error={exc}")
+
+        try:
+            window.events.loaded += report_update_health
+        except Exception as exc:
+            append_launch_log(f"OTA_HEALTH_EVENT_FAILED error={exc}")
     append_launch_log("WEBVIEW_START")
     try:
         webview.start(debug=False)
@@ -1261,6 +1390,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    exit_code = main()
+    if isinstance(exit_code, int):
+        sys.exit(exit_code)
 
 

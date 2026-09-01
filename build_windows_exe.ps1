@@ -249,6 +249,7 @@ try {
     --add-data "${desktopDir};desktop" `
     --add-data "${srcDir};src" `
     --add-data "${nodeModulesDir};node_modules" `
+    --add-data "${projectRoot}\package.json;." `
     --add-binary "$nodeExe;bin" `
     @browserDataArg `
     "$entryScript"

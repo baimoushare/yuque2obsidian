@@ -18,6 +18,9 @@
   lastStatusMessage: '',
   lastSelectionSummary: { totalBooks: 0, totalDocuments: 0 },
   hasAutoScrolledToLogs: false,
+  update: null,
+  updatePollTimer: null,
+  settingsTriggerBeforeOpen: null,
   lastProgressSnapshot: {
     completedBooks: 0,
     totalBooks: 0,
@@ -77,6 +80,22 @@ const elements = {
   treeFoldCollapseIcon: $('#tree-fold-icon-collapse'),
   accountBadge: $('#account-badge'),
   accountText: $('#account-text'),
+  settingsTrigger: $('#settings-trigger'),
+  settingsModal: $('#settings-modal'),
+  settingsDialog: $('#settings-dialog'),
+  settingsCloseBtn: $('#settings-close-btn'),
+  autoCheckUpdates: $('#auto-check-updates'),
+  updateCurrentVersion: $('#update-current-version'),
+  updateLastChecked: $('#update-last-checked'),
+  updateStatus: $('#update-status'),
+  updateNotes: $('#update-notes'),
+  updateProgressWrap: $('#update-progress-wrap'),
+  updateProgressBar: $('#update-progress-bar'),
+  updateProgressText: $('#update-progress-text'),
+  checkUpdateBtn: $('#check-update-btn'),
+  cancelUpdateDownloadBtn: $('#cancel-update-download-btn'),
+  downloadUpdateBtn: $('#download-update-btn'),
+  installUpdateBtn: $('#install-update-btn'),
 };
 
 bootstrap();
@@ -142,6 +161,8 @@ async function init() {
   }
   syncControls();
   syncTreeFoldToggleButton();
+  await refreshUpdateState();
+  scheduleAutoUpdateCheck();
   if (!state.loginUser) {
     renderStatus('桌面端已就绪');
   }
@@ -163,6 +184,17 @@ function wireEvents() {
   elements.toggleReencryptPasswordBtn.addEventListener('click', toggleReencryptPasswordVisibility);
   elements.reencryptEncryptedBlocksMode.addEventListener('change', syncReencryptControls);
   elements.vaultExportLayout.addEventListener('change', syncVaultExportControls);
+  elements.settingsTrigger.addEventListener('click', openSettingsDialog);
+  elements.settingsCloseBtn.addEventListener('click', closeSettingsDialog);
+  elements.settingsModal.addEventListener('click', (event) => {
+    if (event.target?.dataset?.settingsClose === 'true') closeSettingsDialog();
+  });
+  elements.autoCheckUpdates.addEventListener('change', saveAutoCheckUpdates);
+  elements.checkUpdateBtn.addEventListener('click', () => checkForUpdates(true));
+  elements.downloadUpdateBtn.addEventListener('click', startUpdateDownload);
+  elements.cancelUpdateDownloadBtn.addEventListener('click', cancelUpdateDownload);
+  elements.installUpdateBtn.addEventListener('click', installDownloadedUpdate);
+  document.addEventListener('keydown', handleSettingsDialogKeydown);
   elements.openOutputBtn.addEventListener('click', () => {
     const outputDir = state.currentOutputDir || elements.outputDir.value.trim();
     if (outputDir) {
@@ -187,6 +219,7 @@ function fillSettings(settings) {
   elements.downloadImages.checked = settings.downloadImages !== false;
   elements.downloadAttachments.checked = settings.downloadAttachments !== false;
   elements.incrementalExport.checked = settings.incrementalExport !== false;
+  elements.autoCheckUpdates.checked = settings.autoCheckUpdates !== false;
   state.currentOutputDir = settings.outputDir || '';
   syncEncryptedPasswordsHeight();
   syncReencryptControls();
@@ -216,7 +249,199 @@ function readSettings() {
     complexBlockMode: 'auto',
     diagramSnapshotMode: 'fallback-only',
     assetLayout: 'book_assets',
+    autoCheckUpdates: elements.autoCheckUpdates.checked,
   };
+}
+
+function openSettingsDialog() {
+  state.settingsTriggerBeforeOpen = document.activeElement;
+  elements.settingsModal.hidden = false;
+  elements.settingsModal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('settings-dialog-open');
+  refreshUpdateState().finally(() => elements.settingsDialog.focus());
+}
+
+function closeSettingsDialog() {
+  if (elements.settingsModal.hidden) return;
+  elements.settingsModal.hidden = true;
+  elements.settingsModal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('settings-dialog-open');
+  stopUpdatePolling();
+  if (state.settingsTriggerBeforeOpen instanceof HTMLElement) {
+    state.settingsTriggerBeforeOpen.focus();
+  }
+}
+
+function handleSettingsDialogKeydown(event) {
+  if (elements.settingsModal.hidden) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSettingsDialog();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...elements.settingsDialog.querySelectorAll('button:not([disabled]):not([hidden]), input:not([disabled]):not([hidden])')];
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+async function refreshUpdateState() {
+  if (typeof window.pywebview.api.getUpdateState !== 'function') return null;
+  try {
+    const update = await window.pywebview.api.getUpdateState();
+    state.update = update;
+    renderUpdateState(update);
+    return update;
+  } catch (error) {
+    renderUpdateState({ status: 'error', message: '读取更新状态失败', error: error.message, currentVersion: '?' });
+    return null;
+  }
+}
+
+function renderUpdateState(update = {}) {
+  const status = String(update.status || 'idle');
+  const available = update.availableUpdate || null;
+  const currentVersion = update.currentVersion ? `v${update.currentVersion}` : '未知';
+  const message = update.error || update.message || '尚未检查更新';
+  const isDownloading = status === 'downloading';
+  const isDownloaded = status === 'downloaded';
+  const isApplying = status === 'applying';
+
+  elements.updateCurrentVersion.textContent = currentVersion;
+  elements.updateLastChecked.textContent = formatUpdateTime(update.lastCheckedAt);
+  elements.updateStatus.textContent = available ? `${message}（v${available.version}）` : message;
+  elements.autoCheckUpdates.checked = state.settings?.autoCheckUpdates !== false;
+  elements.autoCheckUpdates.disabled = isApplying;
+  elements.updateNotes.replaceChildren();
+  for (const note of available?.notes || []) {
+    const item = document.createElement('li');
+    item.textContent = note;
+    elements.updateNotes.append(item);
+  }
+  elements.updateNotes.hidden = !available?.notes?.length;
+
+  const showProgress = isDownloading || isDownloaded || isApplying;
+  elements.updateProgressWrap.hidden = !showProgress;
+  elements.updateProgressBar.style.width = `${Math.max(0, Math.min(100, Number(update.progress || 0)))}%`;
+  elements.updateProgressText.textContent = isApplying ? '正在安装…' : `${Math.max(0, Math.min(100, Number(update.progress || 0)))}%`;
+
+  elements.checkUpdateBtn.hidden = isDownloading || isApplying;
+  elements.checkUpdateBtn.disabled = status === 'checking';
+  elements.checkUpdateBtn.textContent = status === 'checking' ? '正在检查…' : '立即检查更新';
+  elements.cancelUpdateDownloadBtn.hidden = !isDownloading;
+  elements.downloadUpdateBtn.hidden = !available || isDownloading || isDownloaded || isApplying || !update.isPackaged;
+  elements.downloadUpdateBtn.disabled = !update.canInstall;
+  elements.installUpdateBtn.hidden = !isDownloaded;
+  elements.installUpdateBtn.disabled = !update.canInstall;
+  elements.installUpdateBtn.textContent = update.canInstall ? '安装并重启' : '安装目录不可写';
+
+  if (!update.isPackaged && status !== 'error') {
+    elements.updateStatus.textContent = '当前为开发模式：可以检查更新，但不能替换源码运行入口。';
+  }
+}
+
+function formatUpdateTime(value) {
+  if (!value) return '尚未检查';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+async function saveAutoCheckUpdates() {
+  const enabled = elements.autoCheckUpdates.checked;
+  try {
+    const result = await window.pywebview.api.setAutoCheckUpdates(enabled);
+    state.settings = { ...(state.settings || {}), autoCheckUpdates: result.autoCheckUpdates };
+    renderUpdateState(result.update || state.update || {});
+  } catch (error) {
+    elements.autoCheckUpdates.checked = state.settings?.autoCheckUpdates !== false;
+    renderStatus(`保存自动更新设置失败: ${error.message}`);
+  }
+}
+
+async function checkForUpdates(force) {
+  if (typeof window.pywebview.api.checkForUpdates !== 'function') return;
+  try {
+    renderUpdateState({ ...(state.update || {}), status: 'checking', message: '正在检查更新…' });
+    const update = await window.pywebview.api.checkForUpdates(Boolean(force));
+    state.update = update;
+    renderUpdateState(update);
+    if (update.status === 'available' && !elements.settingsModal.hidden) {
+      elements.downloadUpdateBtn.focus();
+    }
+  } catch (error) {
+    renderUpdateState({ ...(state.update || {}), status: 'error', message: '检查更新失败', error: error.message });
+  }
+}
+
+async function startUpdateDownload() {
+  try {
+    const update = await window.pywebview.api.startUpdateDownload();
+    state.update = update;
+    renderUpdateState(update);
+    startUpdatePolling();
+  } catch (error) {
+    renderStatus(`下载更新失败: ${error.message}`);
+  }
+}
+
+async function cancelUpdateDownload() {
+  try {
+    const update = await window.pywebview.api.cancelUpdateDownload();
+    state.update = update;
+    renderUpdateState(update);
+  } catch (error) {
+    renderStatus(`取消下载失败: ${error.message}`);
+  }
+}
+
+async function installDownloadedUpdate() {
+  if (!window.confirm('安装更新会关闭当前程序。确认继续吗？')) return;
+  try {
+    const update = await window.pywebview.api.installDownloadedUpdate();
+    state.update = { ...(state.update || {}), ...update, status: 'applying' };
+    renderUpdateState(state.update);
+  } catch (error) {
+    renderStatus(`安装更新失败: ${error.message}`);
+  }
+}
+
+function startUpdatePolling() {
+  stopUpdatePolling();
+  state.updatePollTimer = window.setInterval(async () => {
+    const update = await refreshUpdateState();
+    if (!update || !['downloading', 'checking', 'applying'].includes(update.status)) stopUpdatePolling();
+  }, 450);
+}
+
+function stopUpdatePolling() {
+  if (state.updatePollTimer) {
+    window.clearInterval(state.updatePollTimer);
+    state.updatePollTimer = null;
+  }
+}
+
+function scheduleAutoUpdateCheck() {
+  if (state.settings?.autoCheckUpdates === false || typeof window.pywebview.api.checkForUpdates !== 'function') return;
+  window.setTimeout(async () => {
+    if (state.currentJobStatus === 'running') return;
+    try {
+      const update = await window.pywebview.api.checkForUpdates(false);
+      state.update = update;
+      renderUpdateState(update);
+      if (update.status === 'available') renderStatus(`发现新版本 v${update.availableUpdate?.version}，可在右下角设置中下载。`);
+    } catch {
+      // 自动检查失败不打断正常启动；用户仍可在设置中手动检查。
+    }
+  }, 8000);
 }
 
 async function saveSettings() {
@@ -373,28 +598,22 @@ async function startLogin() {
 }
 
 async function scanBooks() {
-  await saveSettings();
-  renderStatus('正在扫描知识库...');
-  const books = await window.pywebview.api.scanBooks(readSettings());
-  state.books = books;
-  state.selectedBooks = new Set(books.map((book) => String(book.id)));
-  state.selectedDocuments = new Set();
-  state.expandedNodes = collectDefaultExpandedNodes(books);
-  renderBooks();
-  await refreshLoginStatus();
-  renderStatus(`已扫描 ${books.length} 个知识库`);
+  try {
+    await saveSettings();
+    renderStatus('正在扫描知识库...');
+    const result = await requestBookScan();
+    applyBookScanResult(result, '已扫描');
+    await refreshLoginStatus();
+  } catch (error) {
+    renderStatus(`扫描知识库失败: ${error.message}`);
+  }
 }
 
 async function autoScanBooksOnLaunch() {
   try {
     renderStatus('已检测到登录账号，正在自动扫描知识库...');
-    const books = await window.pywebview.api.scanBooks(readSettings());
-    state.books = books;
-    state.selectedBooks = new Set(books.map((book) => String(book.id)));
-    state.selectedDocuments = new Set();
-    state.expandedNodes = collectDefaultExpandedNodes(books);
-    renderBooks();
-    renderStatus(`已自动扫描 ${books.length} 个知识库`);
+    const result = await requestBookScan();
+    applyBookScanResult(result, '已自动扫描');
   } catch (error) {
     renderStatus(`自动扫描知识库失败: ${error.message}`);
   }
@@ -403,15 +622,60 @@ async function autoScanBooksOnLaunch() {
 async function autoScanBooksAfterFirstLogin() {
   try {
     renderStatus('登录完成，正在自动扫描知识库...');
-    const books = await window.pywebview.api.scanBooks(readSettings());
-    state.books = books;
-    state.selectedBooks = new Set(books.map((book) => String(book.id)));
-    state.selectedDocuments = new Set();
-    state.expandedNodes = collectDefaultExpandedNodes(books);
-    renderBooks();
-    renderStatus(`首次登录成功，已自动扫描 ${books.length} 个知识库`);
+    const result = await requestBookScan();
+    applyBookScanResult(result, '首次登录成功，已自动扫描');
   } catch (error) {
     renderStatus(`登录完成，但自动扫描知识库失败: ${error.message}`);
+  }
+}
+
+async function requestBookScan() {
+  const config = readSettings();
+  if (typeof window.pywebview.api.scanBooksDetailed === 'function') {
+    return await window.pywebview.api.scanBooksDetailed(config);
+  }
+
+  // 兼容仍只暴露旧 scanBooks 接口的桌面桥接层。
+  const books = await window.pywebview.api.scanBooks(config);
+  return {
+    books,
+    warnings: [],
+    totalBooks: books.length,
+    skippedBooks: 0,
+  };
+}
+
+function applyBookScanResult(result = {}, successPrefix = '已扫描') {
+  const books = Array.isArray(result.books) ? result.books : [];
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const reportedTotalBooks = Number(result.totalBooks ?? books.length + warnings.length);
+  const reportedSkippedBooks = Number(result.skippedBooks ?? warnings.length);
+  const totalBooks = Number.isFinite(reportedTotalBooks) ? reportedTotalBooks : books.length + warnings.length;
+  const skippedBooks = Number.isFinite(reportedSkippedBooks) ? reportedSkippedBooks : warnings.length;
+
+  state.books = books;
+  state.selectedBooks = new Set(books.map((book) => String(book.id)));
+  state.selectedDocuments = new Set();
+  state.expandedNodes = collectDefaultExpandedNodes(books);
+  renderBooks();
+
+  appendScanWarnings(warnings);
+  if (skippedBooks > 0) {
+    renderStatus(`${successPrefix} ${books.length}/${totalBooks} 个知识库，已跳过 ${skippedBooks} 个异常知识库；详情见日志`);
+    return;
+  }
+  renderStatus(`${successPrefix} ${books.length} 个知识库`);
+}
+
+function appendScanWarnings(warnings = []) {
+  for (const warning of warnings) {
+    const message = String(warning?.message || warning || '').trim();
+    if (message) {
+      state.systemLogs.push(`扫描提示：${message}`);
+    }
+  }
+  if (state.systemLogs.length > 120) {
+    state.systemLogs = state.systemLogs.slice(-120);
   }
 }
 

@@ -17,7 +17,7 @@ import {
   writeObsidianSetupJson,
   writeObsidianSetupNote,
 } from './obsidian.js';
-import { filterBooks, getAllBooks, serializeBooks } from './toc.js';
+import { filterBooks, getAllBooks, scanAllBooks, serializeBooks } from './toc.js';
 import { extractBoardsFromDocDetail, isBoardDocument } from './board.js';
 import { createBoardManifest, createBoardRenderPlan, normalizeDiagramExportMode, normalizeDiagramSnapshotMode } from './board-render.js';
 import { readExcalidrawScene, validateExcalidrawScene, writeExcalidrawDrawing } from './excalidraw.js';
@@ -243,9 +243,17 @@ function addDocLinkIndexEntry(indexMap, key, targetMdPath) {
 }
 
 export async function scanBooks(config) {
+  const result = await scanBooksWithDiagnostics(config);
+  return result.books;
+}
+
+export async function scanBooksWithDiagnostics(config) {
   const client = createHttpClient(config.cookiePath);
-  const books = await getAllBooks(client);
-  return serializeBooks(books);
+  const result = await scanAllBooks(client);
+  return {
+    ...result,
+    books: serializeBooks(result.books),
+  };
 }
 
 export function buildExportBrowserLaunchOptions(config = {}, overrides = {}) {

@@ -1282,12 +1282,20 @@ button:disabled {
 }
 
 
-/* ---- 咖啡打赏悬浮组件 ---- */
-.coffee-float {
+/* ---- 右下角辅助工具与设置 ---- */
+.floating-tools {
   position: fixed;
   right: 28px;
   bottom: 28px;
   z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.coffee-float {
+  position: relative;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
@@ -1324,6 +1332,37 @@ button:disabled {
 .coffee-float:hover .coffee-trigger-image {
   transform: translateY(-2px) scale(1.04);
   filter: drop-shadow(0 20px 30px rgba(98, 62, 36, 0.26));
+}
+
+.settings-trigger {
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 1px solid rgba(139, 104, 244, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 14px 28px rgba(91, 70, 133, 0.14);
+  color: #7354a7;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.settings-trigger svg {
+  width: 23px;
+  height: 23px;
+  fill: currentColor;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.settings-trigger:hover,
+.settings-trigger:focus-visible {
+  color: var(--accent-deep);
+  box-shadow: 0 18px 32px rgba(91, 70, 133, 0.2);
+}
+
+.settings-trigger:hover svg,
+.settings-trigger:focus-visible svg {
+  transform: rotate(18deg);
 }
 
 .coffee-popover {
@@ -1407,8 +1446,227 @@ button:disabled {
   text-align: center;
 }
 
+.settings-modal[hidden] {
+  display: none;
+}
+
+.settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.settings-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(35, 26, 56, 0.26);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.settings-dialog {
+  position: relative;
+  width: min(560px, 100%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 22px;
+  background: rgba(251, 250, 255, 0.94);
+  box-shadow: 0 30px 70px rgba(45, 31, 75, 0.24);
+  transform: translateY(0) scale(1);
+  animation: settings-dialog-enter 0.24s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+  overflow: hidden;
+}
+
+.settings-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid rgba(141, 117, 193, 0.12);
+}
+
+.settings-dialog-header h2,
+.update-setting-card h3 {
+  margin: 0;
+  color: var(--text-main);
+  font-family: var(--font-display);
+}
+
+.settings-dialog-header p,
+.update-setting-row p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settings-close-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  background: rgba(118, 88, 165, 0.08);
+  color: #6e5494;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.update-setting-card {
+  padding: 22px 24px 24px;
+}
+
+.update-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+}
+
+.update-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 28px;
+  cursor: pointer;
+}
+
+.update-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.update-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(130, 110, 160, 0.24);
+  transition: background 0.2s ease;
+}
+
+.update-switch span::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 2px 7px rgba(40, 24, 72, 0.22);
+  transition: transform 0.2s ease;
+}
+
+.update-switch input:checked + span {
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+}
+
+.update-switch input:checked + span::after {
+  transform: translateX(20px);
+}
+
+.update-switch input:focus-visible + span {
+  outline: 3px solid rgba(139, 104, 244, 0.28);
+  outline-offset: 3px;
+}
+
+.update-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0 14px;
+}
+
+.update-meta div {
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: rgba(139, 104, 244, 0.07);
+}
+
+.update-meta dt {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.update-meta dd {
+  margin: 5px 0 0;
+  color: var(--text-main);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-status {
+  min-height: 22px;
+  color: #5e4b83;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.update-notes {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0 0;
+  padding: 13px 16px 13px 30px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.update-progress-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.update-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(139, 104, 244, 0.14);
+}
+
+.update-progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-deep));
+  transition: width 0.2s ease;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+@keyframes settings-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (max-width: 720px) {
-  .coffee-float {
+  .floating-tools {
     right: 18px;
     bottom: 18px;
   }
@@ -1421,5 +1679,29 @@ button:disabled {
   .coffee-popover {
     width: min(420px, calc(100vw - 28px));
     right: 0;
+  }
+
+  .settings-dialog {
+    width: min(560px, calc(100vw - 28px));
+  }
+
+  .settings-modal {
+    padding: 14px;
+  }
+
+  .update-meta {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-dialog,
+  .settings-trigger,
+  .settings-trigger svg,
+  .update-switch span,
+  .update-switch span::after,
+  .update-progress-track span {
+    animation: none;
+    transition-duration: 0.01ms;
   }
 }

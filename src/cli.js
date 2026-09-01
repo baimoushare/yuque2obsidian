@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { exportBooks, runComplexArtifactWorkerTask, scanBooks } from './exporter.js';
+import { exportBooks, runComplexArtifactWorkerTask, scanBooksWithDiagnostics } from './exporter.js';
 import { normalizeReencryptMode } from './meld-encrypt.js';
 import {
   createHttpClient,
@@ -76,8 +76,20 @@ async function main() {
     }
     case 'scan': {
       await ensureAuthenticatedCookieFile(config);
-      const books = await scanBooks(config);
-      emit({ type: 'result', status: 'success', books });
+      const scanResult = await scanBooksWithDiagnostics(config);
+      for (const warning of scanResult.warnings) {
+        emit({
+          type: 'warning',
+          phase: 'scan',
+          status: 'warning',
+          message: warning.message,
+          book: warning.bookName,
+          bookId: warning.bookId,
+          statusCode: warning.statusCode,
+          category: warning.category,
+        });
+      }
+      emit({ type: 'result', status: 'success', ...scanResult });
       break;
     }
     case 'whoami': {
@@ -125,6 +137,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === entryPath) {
       status: 'error',
       error: error.message,
       stack: error.stack,
+      scanWarnings: Array.isArray(error.scanWarnings) ? error.scanWarnings : [],
     });
     process.exitCode = 1;
   });
