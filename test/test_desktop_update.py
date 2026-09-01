@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,7 @@ from desktop_update import (
     compare_versions,
     validate_manifest,
     verify_manifest_signature,
+    _terminate_process,
 )
 
 
@@ -98,6 +100,36 @@ class DesktopUpdateTests(unittest.TestCase):
             service.report_post_update_health("a" * 32, "0.8.1")
 
             self.assertFalse((root / "data" / "updates" / "health" / f"{'a' * 32}.json").exists())
+
+    def test_check_network_failure_is_retryable_instead_of_stuck_checking(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "package.json").write_text('{"version":"0.8.0"}', encoding="utf-8")
+            service = UpdateService(root / "data", root)
+
+            with patch("desktop_update._fetch_bytes", side_effect=urllib.error.URLError("offline")):
+                failed = service.check(force=True)
+            self.assertEqual(failed["status"], "error")
+
+            private_key = Ed25519PrivateKey.generate()
+            public_key = base64.b64encode(
+                private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            ).decode("ascii")
+            manifest_bytes = (json.dumps(self._manifest(), ensure_ascii=False) + "\n").encode("utf-8")
+            signature = base64.b64encode(private_key.sign(manifest_bytes))
+            service.public_key_b64 = public_key
+            with patch("desktop_update._fetch_bytes", side_effect=[manifest_bytes, signature]):
+                recovered = service.check(force=True)
+            self.assertEqual(recovered["status"], "available")
+
+    def test_terminate_process_releases_a_live_failed_update_process(self):
+        process = MagicMock()
+        process.poll.return_value = None
+
+        _terminate_process(process)
+
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=5)
 
     def test_helper_replaces_program_and_waits_for_health_marker(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -334,7 +334,7 @@ class UpdateService:
                     }
                 )
                 self._persist()
-        except (UnicodeDecodeError, ValueError, UpdateError) as exc:
+        except (urllib.error.URLError, OSError, UnicodeDecodeError, ValueError, UpdateError) as exc:
             with self._lock:
                 self._state.update({"status": "error", "message": "检查更新失败", "error": str(exc), "lastCheckedAt": utc_now_iso()})
                 self._persist()
@@ -523,6 +523,23 @@ def _write_helper_result(task, status, message):
     atomic_write_json(result_path, {"status": status, "message": message, "finishedAt": utc_now_iso()})
 
 
+def _terminate_process(process):
+    """回滚前结束仍占用新版 EXE 的进程，避免 Windows 拒绝移动文件。"""
+    if process is None:
+        return
+    try:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        # 回滚仍会继续执行；若进程已自行退出，这里无需二次报错覆盖根因。
+        pass
+
+
 def apply_update_task(task_path):
     """由复制出来的旧 EXE 调用；成功后返回 0，回滚后返回非零。"""
     task_path = Path(task_path).resolve()
@@ -584,6 +601,7 @@ def apply_update_task(task_path):
         archived_backup = history_dir / f"{target.name}.previous-{datetime.now().strftime('%Y%m%d-%H%M%S')}.exe"
         os.replace(backup, archived_backup)
     os.replace(target, backup)
+    process = None
     try:
         os.replace(staged_near_target, target)
         process = subprocess.Popen([str(target), "--post-update", str(task["token"]), expected_version], cwd=str(target_dir), close_fds=True)
@@ -600,6 +618,7 @@ def apply_update_task(task_path):
     except Exception as exc:
         failed_path = history_dir / f"{target.name}.failed-{datetime.now().strftime('%Y%m%d-%H%M%S')}.exe"
         try:
+            _terminate_process(process)
             if target.exists():
                 os.replace(target, failed_path)
             os.replace(backup, target)
