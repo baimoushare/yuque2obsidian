@@ -1,6 +1,8 @@
 import axios from 'axios';
 import fs from 'fs';
+import path from 'path';
 import puppeteer from 'puppeteer';
+import { fileURLToPath } from 'url';
 import { TABLE_RECORD_FETCH_LIMIT, isTableDocument as isStandaloneTableDocument, parseLaketableBody } from './table.js';
 import {
   applyCookies,
@@ -49,6 +51,9 @@ export function createHttpClientFromCookies(cookies) {
       Referer: 'https://www.yuque.com/',
     },
     maxRedirects: 5,
+    timeout: 120000,
+    maxContentLength: 256 * 1024 * 1024,
+    maxBodyLength: 256 * 1024 * 1024,
     validateStatus: (status) => status >= 200 && status < 400,
   });
 
@@ -79,8 +84,17 @@ export function createHttpClientFromCookies(cookies) {
       if (!headers['X-Requested-With'] && !headers['x-requested-with']) {
         headers['X-Requested-With'] = 'XMLHttpRequest';
       }
+      if (options.skipAuth) {
+        headers.Cookie = '';
+        delete headers.cookie;
+        delete headers['X-CSRF-Token'];
+        delete headers['x-csrf-token'];
+        delete headers['X-Requested-With'];
+        delete headers['x-requested-with'];
+      }
       return await instance.request({
         ...options,
+        skipAuth: undefined,
         headers,
       });
     },
@@ -261,9 +275,12 @@ export function buildBrowserLaunchOptions(options = {}) {
     '--disable-background-timer-throttling',
     '--disable-breakpad',
     '--no-first-run',
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
   ];
+
+  // Windows 桌面端保留 Chromium 沙箱；Linux 仅在用户显式要求时关闭。
+  if (process.platform === 'linux' && process.env.YUQUE_EXPORTER_DISABLE_SANDBOX === '1') {
+    launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+  }
 
   const profileDir = resolveBrowserProfileDir(options);
   if (profileDir) {
@@ -280,15 +297,39 @@ export function buildBrowserLaunchOptions(options = {}) {
 }
 
 export async function launchBrowser(options = {}) {
-  return await puppeteer.launch(buildBrowserLaunchOptions(options));
+  const launchOptions = buildBrowserLaunchOptions(options);
+  if (!launchOptions.executablePath && typeof puppeteer.executablePath === 'function') {
+    const bundled = await puppeteer.executablePath();
+    if (bundled && fs.existsSync(bundled)) launchOptions.executablePath = bundled;
+  }
+  if (launchOptions.executablePath && !fs.existsSync(launchOptions.executablePath)) {
+    throw new Error(`Configured browser executable was not found: ${launchOptions.executablePath}`);
+  }
+  if (!launchOptions.executablePath && process.platform === 'win32') {
+    throw new Error('未找到可用的 Chrome/Edge 浏览器。请安装 Chrome/Edge，或在设置中指定浏览器路径。');
+  }
+  return await puppeteer.launch(launchOptions);
 }
 
 function resolveSystemBrowserExecutable() {
-  if (process.platform !== 'win32') {
-    return '';
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const bundledRoot = path.join(moduleDir, '..', 'browsers', 'chrome');
+  const bundledCandidates = [
+    process.env.YUQUE_BUNDLED_BROWSER_PATH || '',
+    path.join(bundledRoot, 'chrome.exe'),
+    path.join(bundledRoot, 'chrome'),
+  ].filter(Boolean);
+  try {
+    for (const entry of fs.readdirSync(bundledRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      bundledCandidates.push(path.join(bundledRoot, entry.name, 'chrome.exe'));
+      bundledCandidates.push(path.join(bundledRoot, entry.name, 'chrome'));
+    }
+  } catch {
+    // Bundled browser directory may not exist in development builds.
   }
-
-  return WINDOWS_BROWSER_CANDIDATES.find((candidate) => fs.existsSync(candidate)) || '';
+  const systemCandidates = process.platform === 'win32' ? WINDOWS_BROWSER_CANDIDATES : [];
+  return [...bundledCandidates, ...systemCandidates].find((candidate) => fs.existsSync(candidate)) || '';
 }
 
 async function prepareLoginPage(page) {

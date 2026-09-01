@@ -119,6 +119,7 @@ function localizeErrorType(type, message) {
     BoardExportSidecarOnly: '画板内容已导出为附加文件',
     PartialDatatableExport: '数据表部分导出',
     MissingExportedAsset: '导出资源缺失',
+    ExistingOutputBackedUp: '原文件已备份',
     StructuredTableApiFallback: '智能表已切换兜底导出',
     TableImageDownloadSkipped: '数据表图片下载已跳过',
     TableSnapshotSkipped: '数据表快照已跳过',
@@ -166,27 +167,27 @@ function localizeErrorMessage(message) {
   }
 
   const reencryptGlobalMissingMatch = source.match(
-    /^Encrypted block re-encryption mode "global" could not run because no global password was configured\. Falling back to plaintext for (\d+) block\(s\)\.$/i,
+    /^Encrypted block re-encryption mode "global" could not run because no global password was configured\. (?:Falling back to plaintext|Encrypted content was replaced with privacy placeholders) for (\d+) block\(s\)\.$/i,
   );
   if (reencryptGlobalMissingMatch) {
     const [, count] = reencryptGlobalMissingMatch;
-    return `已启用“全局密码重加密”，但当前未配置全局密码，因此 ${count || 0} 个加密块已回退为明文导出。`;
+    return `已启用“全局密码重加密”，但当前未配置全局密码，因此 ${count || 0} 个加密块已替换为隐私占位符，未导出明文。`;
   }
 
   const reencryptMatchedPasswordMissingMatch = source.match(
-    /^Encrypted block re-encryption mode "matched-block" could not find matched passwords for (\d+) block\(s\): (.+)\. Those blocks were kept as plaintext\.$/i,
+    /^Encrypted block re-encryption mode "matched-block" could not find matched passwords for (\d+) block\(s\): (.+)\. Those blocks were (?:kept as plaintext|replaced with privacy placeholders)\.$/i,
   );
   if (reencryptMatchedPasswordMissingMatch) {
     const [, count, blockList] = reencryptMatchedPasswordMissingMatch;
-    return `已启用“按内容块命中密码重加密”，但有 ${count || 0} 个加密块未找到对应命中密码（${blockList}），因此这些内容块已回退为明文导出。`;
+    return `已启用“按内容块命中密码重加密”，但有 ${count || 0} 个加密块未找到对应命中密码（${blockList}），因此这些内容块已替换为隐私占位符，未导出明文。`;
   }
 
   const reencryptFailureMatch = source.match(
-    /^Encrypted block re-encryption mode "(.+)" failed for (\d+) block\(s\): (.+)\. Those blocks were kept as plaintext\. First error: (.+)$/i,
+    /^Encrypted block re-encryption mode "(.+)" failed for (\d+) block\(s\): (.+)\. Those blocks were (?:kept as plaintext|replaced with privacy placeholders)\. First error: (.+)$/i,
   );
   if (reencryptFailureMatch) {
     const [, mode, count, blockList, reason] = reencryptFailureMatch;
-    return `加密块重加密在模式 ${mode || 'unknown'} 下失败，涉及 ${count || 0} 个内容块（${blockList}），这些内容块已回退为明文导出。首个错误：${localizeNestedErrorReason(
+    return `加密块重加密在模式 ${mode || 'unknown'} 下失败，涉及 ${count || 0} 个内容块（${blockList}），这些内容块已替换为隐私占位符，未导出明文。首个错误：${localizeNestedErrorReason(
       reason,
     )}`;
   }

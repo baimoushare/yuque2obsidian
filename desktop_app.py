@@ -18,10 +18,35 @@ from desktop_retry import build_retry_export_plan
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
-SETTINGS_FILE = APP_DIR / "desktop.settings.json"
-LAUNCH_LOG_FILE = APP_DIR / "desktop-launch.log"
-CRASH_REPORT_DIR = APP_DIR / "crash-reports"
+# 运行时可写数据放到用户目录，避免安装到 Program Files 后无法保存配置，
+# 也避免把登录态和日志散落在程序安装目录。
+LOCAL_DATA_ROOT = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / ".local" / "share"))
+USER_DATA_DIR = LOCAL_DATA_ROOT / "YuqueExporterObsidian"
+SETTINGS_FILE = USER_DATA_DIR / "desktop.settings.json"
+LAUNCH_LOG_FILE = USER_DATA_DIR / "desktop-launch.log"
+CRASH_REPORT_DIR = USER_DATA_DIR / "crash-reports"
+LEGACY_SETTINGS_FILE = APP_DIR / "desktop.settings.json"
+LEGACY_COOKIE_FILE = APP_DIR / "cookies.json"
 SINGLE_INSTANCE_MUTEX = None
+
+
+def migrate_legacy_runtime_files():
+    """首次升级时把旧安装目录配置迁移到用户目录；不复制不存在的文件。"""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if not SETTINGS_FILE.exists() and LEGACY_SETTINGS_FILE.exists():
+            try:
+                legacy_settings = json.loads(LEGACY_SETTINGS_FILE.read_text(encoding="utf-8-sig"))
+                for key in ("encryptedBlockPasswords", "encryptedBlockPassword", "reencryptGlobalPassword", "jobControlPath"):
+                    legacy_settings.pop(key, None)
+                SETTINGS_FILE.write_text(json.dumps(legacy_settings, ensure_ascii=False, indent=2), encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+        target_cookie = USER_DATA_DIR / "cookies.json"
+        if not target_cookie.exists() and LEGACY_COOKIE_FILE.exists():
+            target_cookie.write_bytes(LEGACY_COOKIE_FILE.read_bytes())
+    except Exception as exc:
+        append_launch_log(f"RUNTIME_DATA_MIGRATION_FAILED error={exc}")
 
 
 def append_launch_log(message):
@@ -413,14 +438,34 @@ class DesktopApi:
     def loadSettings(self):
         if not SETTINGS_FILE.exists():
             return self._default_settings()
-        # 兼容 Windows 工具曾写入的 UTF-8 BOM；否则合法 JSON 会在首字符解析失败，
-        # 进而使桌面端无法加载包括“图形导出”在内的全部配置。
-        loaded = json.loads(SETTINGS_FILE.read_text(encoding="utf-8-sig"))
-        return self._normalize_settings(loaded or {})
+        try:
+            # 兼容历史配置中的 UTF-8 BOM。
+            loaded = json.loads(SETTINGS_FILE.read_text(encoding="utf-8-sig"))
+            return self._normalize_settings(loaded or {})
+        except (OSError, ValueError) as exc:
+            # 配置损坏时回退默认值，并保留现场，避免整个桌面端无法启动。
+            corrupt_path = SETTINGS_FILE.with_name(
+                f"{SETTINGS_FILE.stem}.corrupt-{datetime.now().strftime('%Y%m%d-%H%M%S')}{SETTINGS_FILE.suffix}"
+            )
+            try:
+                SETTINGS_FILE.replace(corrupt_path)
+            except OSError:
+                pass
+            append_launch_log(f"SETTINGS_LOAD_FAILED path={SETTINGS_FILE} error={exc}")
+            return self._default_settings()
 
     def saveSettings(self, settings):
         merged = self._normalize_settings(settings or {})
-        SETTINGS_FILE.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 密码只在本次任务内存中存在，不写入配置文件。
+        persisted = {
+            key: value
+            for key, value in merged.items()
+            if key not in {"encryptedBlockPasswords", "encryptedBlockPassword", "reencryptGlobalPassword", "jobControlPath"}
+        }
+        USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        temporary = SETTINGS_FILE.with_name(f".{SETTINGS_FILE.name}.{uuid.uuid4().hex}.tmp")
+        temporary.write_text(json.dumps(persisted, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary, SETTINGS_FILE)
         return merged
 
     def chooseOutputDir(self, currentPath=""):
@@ -577,6 +622,22 @@ class DesktopApi:
             job["logs"].append("Task cancelled.")
         return {"status": job["status"]}
 
+    def shutdown_jobs(self):
+        """窗口关闭时停止所有 Node 子进程，避免留下孤儿浏览器/导出进程。"""
+        for job in list(self.jobs.values()):
+            process = job.get("process")
+            if not process or process.poll() is not None:
+                continue
+            try:
+                process.terminate()
+                process.wait(timeout=3)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+            self._cleanup_job_control_file(job)
+
     def _schedule_forced_shutdown(self, job, requested_status, grace_seconds, log_message):
         if not job:
             return
@@ -661,10 +722,11 @@ class DesktopApi:
     def _default_settings(self):
         return {
             "browserPath": "",
-            "cookiePath": str(APP_DIR / "cookies.json"),
-            "outputDir": str(APP_DIR / "output"),
+            "cookiePath": str(USER_DATA_DIR / "cookies.json"),
+            "outputDir": str(USER_DATA_DIR / "output"),
             "obsidianVaultPath": "",
-            "obsidianSetupMode": "bases+community",
+            # 不默认安装社区插件；用户需要在界面中明确选择后才执行。
+            "obsidianSetupMode": "none",
             "vaultExportLayout": "direct-to-vault",
             "vaultExportSubdir": "语雀导出",
             "downloadImages": True,
@@ -702,7 +764,7 @@ class DesktopApi:
         return merged
 
     def _normalize_cookie_path(self, cookie_path):
-        default_path = APP_DIR / "cookies.json"
+        default_path = USER_DATA_DIR / "cookies.json"
         if not cookie_path:
             return str(default_path)
 
@@ -836,7 +898,9 @@ class DesktopApi:
         event_tail = deque(maxlen=40)
 
         env = os.environ.copy()
-        env["YUQUE_EXPORTER_CONFIG"] = json.dumps(merged, ensure_ascii=False)
+        # 不把 Cookie/密码放入环境变量：同用户进程可枚举环境变量。
+        env.pop("YUQUE_EXPORTER_CONFIG", None)
+        env["YUQUE_EXPORTER_CONFIG_STDIN"] = "1"
         append_launch_log(
             f"JOB_START id={job.get('id')} kind={job.get('kind')} command={command} "
             f"node={node_command} cli={cli_entry} cwd={RESOURCE_DIR} "
@@ -846,6 +910,7 @@ class DesktopApi:
             [node_command, cli_entry, command],
             cwd=str(RESOURCE_DIR),
             env=env,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -854,6 +919,12 @@ class DesktopApi:
             **get_hidden_subprocess_kwargs(),
         )
         job["process"] = process
+        try:
+            if process.stdin is not None:
+                process.stdin.write(json.dumps(merged, ensure_ascii=False))
+                process.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
 
         final_payload = None
         assert process.stdout is not None
@@ -871,10 +942,14 @@ class DesktopApi:
                 continue
 
             job["events"].append(payload)
+            if len(job["events"]) > 1000:
+                del job["events"][:-500]
             event_tail.append(self._compact_event_for_log(payload))
             self._update_job_progress_snapshot(job, payload)
             if payload.get("message"):
                 job["logs"].append(payload["message"])
+                if len(job["logs"]) > 1000:
+                    del job["logs"][:-500]
             if payload.get("type") == "result":
                 final_payload = payload
             job["updatedAt"] = self._now_iso()
@@ -933,6 +1008,12 @@ class DesktopApi:
         return bool(job.get("forcedTermination"))
 
     def _serialize_job(self, job):
+        config = job.get("config") or {}
+        safe_config = {
+            key: value
+            for key, value in config.items()
+            if key not in {"encryptedBlockPasswords", "encryptedBlockPassword", "reencryptGlobalPassword", "cookiePath"}
+        }
         return {
             "id": job["id"],
             "kind": job["kind"],
@@ -941,7 +1022,7 @@ class DesktopApi:
             "events": job["events"][-400:],
             "result": job["result"],
             "error": job["error"],
-            "config": job.get("config"),
+            "config": safe_config,
             "lastProgress": job.get("lastProgress"),
             "lastDocument": job.get("lastDocument"),
             "crashReportPath": job.get("crashReportPath"),
@@ -1143,6 +1224,7 @@ def main():
     hide_console_window()
     if not acquire_single_instance_guard():
         return
+    migrate_legacy_runtime_files()
     os.chdir(RESOURCE_DIR)
     ui_entry = RESOURCE_DIR / "desktop" / "ui" / "index.html"
     styles_entry = RESOURCE_DIR / "desktop" / "ui" / "styles.css"
@@ -1167,6 +1249,10 @@ def main():
         text_select=True,
     )
     api.attach_window(window)
+    try:
+        window.events.closing += api.shutdown_jobs
+    except Exception as exc:
+        append_launch_log(f"WINDOW_CLOSE_HANDLER_FAILED error={exc}")
     append_launch_log("WEBVIEW_START")
     try:
         webview.start(debug=False)

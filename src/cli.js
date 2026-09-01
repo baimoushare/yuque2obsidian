@@ -15,9 +15,11 @@ function emit(payload) {
 }
 
 export function parseCliConfig(rawConfig) {
-  const raw = rawConfig || process.env.YUQUE_EXPORTER_CONFIG;
+  const raw = rawConfig || process.env.YUQUE_EXPORTER_CONFIG || (
+    process.env.YUQUE_EXPORTER_CONFIG_STDIN === '1' ? fs.readFileSync(0, 'utf8') : ''
+  );
   if (!raw) {
-    throw new Error('Missing YUQUE_EXPORTER_CONFIG environment variable.');
+    throw new Error('Missing exporter configuration (environment or stdin).');
   }
 
   const parsed = JSON.parse(raw);
@@ -95,13 +97,19 @@ async function main() {
         throw new Error('Missing YUQUE_COMPLEX_ARTIFACT_TASK_FILE for complex artifact worker.');
       }
 
+      const taskRoot = path.resolve(path.dirname(taskFile));
+
       const task = JSON.parse(fs.readFileSync(taskFile, 'utf8'));
       const result = await runComplexArtifactWorkerTask(config, task);
       if (!task.resultFile) {
         throw new Error('Complex artifact worker task is missing resultFile.');
       }
-      fs.writeFileSync(task.resultFile, JSON.stringify(result, null, 2), 'utf8');
-      emit({ type: 'result', status: 'success', resultFile: task.resultFile });
+      const resultFile = path.resolve(task.resultFile);
+      if (path.dirname(resultFile) !== taskRoot) {
+        throw new Error('Complex artifact worker resultFile must stay beside the task file.');
+      }
+      fs.writeFileSync(resultFile, JSON.stringify(result, null, 2), 'utf8');
+      emit({ type: 'result', status: 'success', resultFile });
       break;
     }
     default:

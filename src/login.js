@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { getCookies } from '@steipete/sweet-cookie';
 import { sleep } from './utils.js';
 
@@ -9,13 +9,38 @@ export const YUQUE_LOGIN_URL = 'https://www.yuque.com/login';
 
 const YUQUE_COOKIE_ORIGINS = [YUQUE_ROOT_URL, 'https://yuque.com/'];
 const DEFAULT_BROWSER_SOURCES = ['edge', 'chrome'];
+const DPAPI_FORMAT = 'yuque-exporter-dpapi-v1';
+
+function protectWithWindowsDpapi(text) {
+  if (process.platform !== 'win32') return text;
+  const script = "Add-Type -AssemblyName System.Security;$s=[Console]::In.ReadToEnd();$b=[Text.Encoding]::UTF8.GetBytes($s);$p=[System.Security.Cryptography.ProtectedData]::Protect($b,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser);[Convert]::ToBase64String($p)";
+  return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { input: text, encoding: 'utf8', windowsHide: true }).trim();
+}
+
+function unprotectWithWindowsDpapi(value) {
+  if (process.platform !== 'win32') return value;
+  const script = "Add-Type -AssemblyName System.Security;$s=[Console]::In.ReadToEnd();$b=[Convert]::FromBase64String($s);$p=[System.Security.Cryptography.ProtectedData]::Unprotect($b,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser);[Text.Encoding]::UTF8.GetString($p)";
+  return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { input: value, encoding: 'utf8', windowsHide: true });
+}
 
 export function loadCookies(cookiePath = './cookies.json') {
   if (!fs.existsSync(cookiePath)) {
     return [];
   }
 
-  return JSON.parse(fs.readFileSync(cookiePath, 'utf8'));
+  try {
+    const raw = fs.readFileSync(cookiePath, 'utf8');
+    const envelope = JSON.parse(raw);
+    const payload = envelope?.format === DPAPI_FORMAT
+      ? unprotectWithWindowsDpapi(String(envelope.protectedData || ''))
+      : raw;
+    const cookies = JSON.parse(payload);
+    if (!Array.isArray(cookies)) return [];
+    if (process.platform === 'win32' && envelope?.format !== DPAPI_FORMAT) saveCookies(cookiePath, cookies);
+    return cookies;
+  } catch {
+    return [];
+  }
 }
 
 export function saveCookies(cookiePath, cookies) {
@@ -23,7 +48,16 @@ export function saveCookies(cookiePath, cookies) {
   if (directory && directory !== '.') {
     fs.mkdirSync(directory, { recursive: true });
   }
-  fs.writeFileSync(cookiePath, JSON.stringify(cookies, null, 2), 'utf8');
+  const payload = JSON.stringify(Array.isArray(cookies) ? cookies : [], null, 2);
+  const output = process.platform === 'win32'
+    ? JSON.stringify({ format: DPAPI_FORMAT, protectedData: protectWithWindowsDpapi(payload) }, null, 2)
+    : payload;
+  const temporary = `${cookiePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, output, 'utf8');
+  fs.renameSync(temporary, cookiePath);
+  if (process.platform !== 'win32') {
+    try { fs.chmodSync(cookiePath, 0o600); } catch { /* best effort */ }
+  }
 }
 
 export async function applyCookies(page, cookiePath) {

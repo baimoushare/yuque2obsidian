@@ -1,1 +1,5 @@
-pywebview>=4.0
+# Runtime and Windows packaging dependencies. Versions are pinned for reproducible builds.
+pywebview==4.0.1
+Pillow==12.2.0
+PyInstaller==6.17.0
+requests==2.32.5

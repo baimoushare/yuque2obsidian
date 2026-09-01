@@ -1,5 +1,6 @@
 param(
-  [string]$AppName = 'YuqueExporterObsidian'
+  [string]$AppName = 'YuqueExporterObsidian',
+  [string]$SigningCertificateThumbprint = $env:YUQUE_CODE_SIGN_CERT_THUMBPRINT
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,20 +21,17 @@ $iconIco = Join-Path $tempRoot 'app-icon.ico'
 $desktopDir = Join-Path $projectRoot 'desktop'
 $srcDir = Join-Path $projectRoot 'src'
 $nodeModulesDir = Join-Path $projectRoot 'node_modules'
-$cookieFile = Join-Path $projectRoot 'cookies.json'
-$desktopSettingsFile = Join-Path $projectRoot 'desktop.settings.json'
 $entryScript = Join-Path $projectRoot 'desktop_app.py'
-$releaseCookieFile = Join-Path $releaseDir 'cookies.json'
-$releaseSettingsFile = Join-Path $releaseDir 'desktop.settings.json'
+$browserDataArg = @()
 $buildSucceeded = $false
 $finalExeValidated = $false
 $preserveReleaseNames = @(
   'output',
-  'cookies.json',
-  'desktop.settings.json',
   'desktop-launch.log',
   'crash-reports',
-  "$exeName.WebView2"
+  $exeName,
+  "$exeName.WebView2",
+  "$exeName.previous"
 )
 
 $pythonCandidates = @(
@@ -59,6 +57,16 @@ if (-not (Test-Path $nodeExe)) {
 
 if (-not (Test-Path $iconPng)) {
   throw "app-icon.png not found in project root."
+}
+
+# 若 Puppeteer 本地缓存已有浏览器，则一并打入发布包，减少新机器对系统浏览器的依赖。
+$puppeteerBrowserPath = (& $nodeExe -e "import('puppeteer').then(async m=>process.stdout.write(await m.default.executablePath()))")
+if ($puppeteerBrowserPath -and (Test-Path $puppeteerBrowserPath)) {
+  $browserDir = Split-Path -Parent $puppeteerBrowserPath
+  $browserDataArg = @('--add-data', "$browserDir;browsers\chrome")
+}
+else {
+  Write-Warning "Puppeteer browser binary was not found; the EXE will require an installed Chrome/Edge or a configured browser path."
 }
 
 function Stop-OldPackagedProcesses {
@@ -163,6 +171,7 @@ function Publish-ValidatedExe {
   )
 
   $stagePath = "$DestinationExe.new"
+  $previousPath = "$DestinationExe.previous"
 
   if (-not (Test-PyInstallerArchive -PythonExe $PythonExe -ExecutablePath $SourceExe)) {
     throw "Built exe validation failed before publishing: $SourceExe"
@@ -178,14 +187,27 @@ function Publish-ValidatedExe {
     throw "Published staging exe validation failed: $stagePath"
   }
 
-  if (Test-Path $DestinationExe) {
-    Remove-PathWithRetries -LiteralPath $DestinationExe
+  try {
+    if (Test-Path $previousPath) {
+      Remove-PathWithRetries -LiteralPath $previousPath
+    }
+    if (Test-Path $DestinationExe) {
+      Move-Item -LiteralPath $DestinationExe -Destination $previousPath -Force
+    }
+    Move-Item -LiteralPath $stagePath -Destination $DestinationExe -Force
+
+    if (-not (Test-PyInstallerArchive -PythonExe $PythonExe -ExecutablePath $DestinationExe)) {
+      throw "Final exe validation failed after publish: $DestinationExe"
+    }
   }
-
-  Move-Item -LiteralPath $stagePath -Destination $DestinationExe -Force
-
-  if (-not (Test-PyInstallerArchive -PythonExe $PythonExe -ExecutablePath $DestinationExe)) {
-    throw "Final exe validation failed after publish: $DestinationExe"
+  catch {
+    if (Test-Path $DestinationExe) {
+      Remove-PathWithRetries -LiteralPath $DestinationExe
+    }
+    if (Test-Path $previousPath) {
+      Move-Item -LiteralPath $previousPath -Destination $DestinationExe -Force
+    }
+    throw
   }
 }
 
@@ -200,7 +222,7 @@ New-Item -ItemType Directory -Path $specDir -Force | Out-Null
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
 Get-ChildItem -Path $releaseDir -Force -ErrorAction SilentlyContinue | ForEach-Object {
-  if ($preserveReleaseNames -contains $_.Name) {
+  if ($_.Name -like '*.exe' -or $preserveReleaseNames -contains $_.Name) {
     Write-Host "Preserving release artifact: $($_.FullName)"
     return
   }
@@ -227,21 +249,41 @@ try {
     --add-data "${desktopDir};desktop" `
     --add-data "${srcDir};src" `
     --add-data "${nodeModulesDir};node_modules" `
-    --add-data "${cookieFile};." `
-    --add-data "${desktopSettingsFile};." `
     --add-binary "$nodeExe;bin" `
+    @browserDataArg `
     "$entryScript"
   if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller build failed."
   }
 
   Publish-ValidatedExe -SourceExe (Join-Path $distDir $exeName) -DestinationExe $finalExePath -PythonExe $pythonExe
-  if (-not (Test-Path $releaseCookieFile) -and (Test-Path $cookieFile)) {
-    Copy-Item -LiteralPath $cookieFile -Destination $releaseCookieFile -Force
+  $signed = $false
+  if (-not [string]::IsNullOrWhiteSpace($SigningCertificateThumbprint)) {
+    $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+    if (-not $signtool) {
+      throw 'A signing certificate was configured, but signtool.exe was not found.'
+    }
+    & $signtool sign /sha1 $SigningCertificateThumbprint.Trim() /fd SHA256 /tr 'http://timestamp.digicert.com' /td SHA256 $finalExePath
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Code signing failed.'
+    }
+    & $signtool verify /pa $finalExePath
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Code signature verification failed.'
+    }
+    $signed = $true
   }
-  if (-not (Test-Path $releaseSettingsFile) -and (Test-Path $desktopSettingsFile)) {
-    Copy-Item -LiteralPath $desktopSettingsFile -Destination $releaseSettingsFile -Force
+  else {
+    Write-Warning 'No code-signing certificate was configured. The SHA-256 manifest will be generated, but Windows publisher trust will remain unavailable.'
   }
+  $manifest = [ordered]@{
+    appName = $appName
+    builtAt = (Get-Date).ToUniversalTime().ToString('o')
+    file = $exeName
+    sha256 = ([BitConverter]::ToString(([System.Security.Cryptography.SHA256]::Create()).ComputeHash([System.IO.File]::ReadAllBytes($finalExePath))).Replace('-', '')).ToLowerInvariant()
+    signed = $signed
+  }
+  $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $releaseDir 'manifest.json') -Encoding UTF8
   Remove-LegacyPackageArtifacts -RootPath $projectRoot
   $finalExeValidated = $true
   $buildSucceeded = $true

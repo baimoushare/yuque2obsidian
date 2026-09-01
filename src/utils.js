@@ -95,5 +95,10 @@ export function stripHtml(html) {
 }
 
 export function writeJson(filePath, value) {
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8');
+  const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  if (fs.existsSync(filePath)) {
+    try { fs.copyFileSync(filePath, `${filePath}.bak`); } catch { /* best effort backup */ }
+  }
+  fs.writeFileSync(temporary, JSON.stringify(value, null, 2), 'utf8');
+  fs.renameSync(temporary, filePath);
 }

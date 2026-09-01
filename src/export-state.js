@@ -18,7 +18,10 @@ export class ExportStateStore {
   shouldSkip(docPlan) {
     const record = this.getRecord(docPlan.absoluteDocUrl);
     const outputPath = record?.outputPath || record?.targetMdPath || docPlan.targetMdPath;
-    return record?.status === 'exported' && Boolean(outputPath) && fs.existsSync(outputPath);
+    const currentPath = path.resolve(String(docPlan.targetMdPath || ''));
+    const savedPath = path.resolve(String(outputPath || ''));
+    const sameSource = Boolean(record?.sourceVersion && docPlan?.sourceVersion && record.sourceVersion === docPlan.sourceVersion);
+    return record?.status === 'exported' && sameSource && savedPath === currentPath && fs.existsSync(currentPath);
   }
 
   markQueued(docPlan) {
@@ -43,6 +46,7 @@ export class ExportStateStore {
       targetMdPath: docPlan.targetMdPath,
       outputPath,
       outputKind: options.outputKind || 'markdown',
+      sourceVersion: docPlan.sourceVersion || '',
       error: '',
     });
   }

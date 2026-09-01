@@ -2,7 +2,7 @@ import { type } from './const.js';
 import { sanitizeFileName } from './utils.js';
 
 class BookPage {
-  constructor(id, uuid, name, url, nodeType, parentUuid, childUuid, siblingUuid) {
+  constructor(id, uuid, name, url, nodeType, parentUuid, childUuid, siblingUuid, sourceVersion = '') {
     this.id = id;
     this.uuid = uuid;
     this.name = name;
@@ -11,6 +11,7 @@ class BookPage {
     this.parent_uuid = parentUuid;
     this.child_uuid = childUuid;
     this.sibling_uuid = siblingUuid;
+    this.sourceVersion = sourceVersion;
   }
 }
 
@@ -90,6 +91,7 @@ function serializeNode(node) {
     type: node.type,
     url: node.object?.url ?? null,
     id: node.object?.id ?? null,
+    sourceVersion: node.object?.sourceVersion ?? '',
     children: (node.children ?? []).map(serializeNode),
   };
 }
@@ -112,6 +114,7 @@ async function getBookDetail(client, book) {
       item.parent_uuid,
       item.child_uuid,
       item.sibling_uuid,
+      item.updated_at || item.updatedAt || item.version_id || '',
     );
     uuidMap.set(page.uuid, page);
   }

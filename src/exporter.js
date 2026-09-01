@@ -2,6 +2,7 @@
 import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
+import net from 'net';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { type } from './const.js';
@@ -168,7 +169,25 @@ const DOCUMENT_EDIT_TOOLBAR_SELECTOR = [
 const COMPLEX_ARTIFACT_WORKER_COMMAND = 'capture-artifacts-worker';
 const COMPLEX_ARTIFACT_MAX_ATTEMPTS = 2;
 const ASSET_DOWNLOAD_MAX_ATTEMPTS = 3;
+const MAX_ASSET_BYTES = 256 * 1024 * 1024;
 const EMBEDDED_MEDIA_EXTENSIONS = new Set(['mov', 'mp3', 'mp4']);
+
+function writeTextFileAtomically(filePath, content) {
+  const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  let backupPath = '';
+  if (fs.existsSync(filePath)) {
+    backupPath = `${filePath}.backup-${formatTimestamp()}`;
+    let counter = 2;
+    while (fs.existsSync(backupPath)) {
+      backupPath = `${filePath}.backup-${formatTimestamp()}-${counter}`;
+      counter += 1;
+    }
+    fs.copyFileSync(filePath, backupPath);
+  }
+  fs.writeFileSync(temporary, content, 'utf8');
+  fs.renameSync(temporary, filePath);
+  return backupPath;
+}
 
 function buildDocLinkIndex(documents = [], exportRoot = '') {
   const index = {
@@ -862,7 +881,14 @@ export async function exportBooks(config, emit = () => {}) {
               recordDocIssue(issue);
             }
             recordMissingExportedAssetWarnings(finalMarkdown, docPlan.targetMdPath, recordDocIssue);
-            fs.writeFileSync(docPlan.targetMdPath, finalMarkdown, 'utf8');
+            const backupPath = writeTextFileAtomically(docPlan.targetMdPath, finalMarkdown);
+            if (backupPath) {
+              recordDocIssue({
+                phase: 'write-markdown',
+                errorType: 'ExistingOutputBackedUp',
+                errorMessage: `Existing output was backed up before replacement: ${backupPath}`,
+              });
+            }
           }
 
           const datatableSummaries = summarizeDatatablesForReport(artifacts.datatables, docPlan, bookPlan);
@@ -977,15 +1003,27 @@ export async function exportBooks(config, emit = () => {}) {
               error_message: issue.error_message || 'Encrypted block re-encryption encountered a warning.',
               retry_count: 0,
             }));
-            fs.writeFileSync(
+            const backupPath = writeTextFileAtomically(
               docPlan.targetMdPath,
               buildPlaceholderMarkdown(docPlan, failure, artifacts, {
                 baseMarkdown: rewrittenMarkdown || markdown || '',
                 warningEntries: docIssueTracker.warnings,
                 encryptedBlockRenderPlan,
               }),
-              'utf8',
             );
+            if (backupPath) {
+              failureLogger.append({
+                timestamp: new Date().toISOString(),
+                book_name: bookPlan.book.name,
+                doc_name: docPlan.node.name,
+                yuque_path: docPlan.absoluteDocUrl,
+                target_md_path: docPlan.targetMdPath,
+                phase: 'write-markdown',
+                error_type: 'ExistingOutputBackedUp',
+                error_message: `Existing output was backed up before replacement: ${backupPath}`,
+                retry_count: 0,
+              });
+            }
             const datatableSummaries = summarizeDatatablesForReport(artifacts.datatables, docPlan, bookPlan);
             report.totals.datatables += datatableSummaries.length;
             report.datatables.push(...datatableSummaries);
@@ -1989,6 +2027,7 @@ function annotateNode(node, currentDir, bookPlan, allocator, allDocuments, selec
         node,
         targetMdPath: node.targetMdPath,
         docSlug: node.object.url,
+        sourceVersion: String(node.object?.sourceVersion || '').trim(),
         docUrl: `${bookPlan.book.user_url}/${bookPlan.book.slug}/${node.object.url}`,
         absoluteDocUrl,
       };
@@ -2268,7 +2307,24 @@ export function buildAssetDownloadCandidateUrls(assetUrl) {
     appendDerived(yuqueOriginal);
   }
 
-  return dedupeTexts([source, ...derived]).filter(Boolean);
+  return dedupeTexts([source, ...derived]).filter(isSafeExternalAssetUrl);
+}
+
+function isSafeExternalAssetUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return false;
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host === '0.0.0.0') return false;
+    if (net.isIP(host) === 4) {
+      const [a, b] = host.split('.').map(Number);
+      if (a === 10 || a === 127 || (a === 169 && b === 254) || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31)) return false;
+    }
+    if (net.isIP(host) === 6 && (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:'))) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function downloadBinaryAsset(client, assetUrl, options = {}) {
@@ -2307,6 +2363,11 @@ async function requestBinaryAsset(client, assetUrl, options = {}) {
     responseType: 'arraybuffer',
     transformResponse: [(value) => value],
     timeout: options.timeout ?? 120000,
+    // 外链资源不跟随重定向，避免公开 URL 被重定向到内网地址。
+    maxRedirects: 0,
+    maxContentLength: MAX_ASSET_BYTES,
+    maxBodyLength: MAX_ASSET_BYTES,
+    skipAuth: true,
     headers: {
       ...buildExternalAssetHeaders(assetUrl),
       ...(options.headers || {}),
@@ -2341,6 +2402,9 @@ export function validateBinaryAssetResponse(response, options = {}) {
 
   const assetUrl = String(options.assetUrl || '').trim() || 'unknown asset';
   const buffer = toBinaryBuffer(response?.data);
+  if (buffer.length > MAX_ASSET_BYTES) {
+    throw new Error(`Downloaded asset exceeded the ${MAX_ASSET_BYTES} byte safety limit.`);
+  }
   if (buffer.length === 0) {
     throw new Error(`Downloaded image asset ${assetUrl} was empty.`);
   }
@@ -3672,7 +3736,7 @@ async function enterDocumentEditModeOnPage(page, options = {}) {
   } catch {
     // Ignore scroll failures and still try to find the edit entry.
   }
-  await page.waitForTimeout(700);
+  await sleep(700);
 
   const editEntry = pickVisibleDocumentEditEntry(await collectVisibleDocumentEditEntries(page));
   if (!editEntry) {
@@ -3692,7 +3756,7 @@ async function enterDocumentEditModeOnPage(page, options = {}) {
     };
   }
 
-  await page.waitForTimeout(1200);
+  await sleep(1200);
   try {
     await page.waitForFunction(
       (payload) => {
@@ -5182,7 +5246,7 @@ export async function captureRenderedImageFallbackInEditModeOnPage(page, docPlan
 
   try {
     await scrollBoundImageIntoView(activeBinding);
-    await page.waitForTimeout(options.bringToFront ? 1400 : 1000);
+    await sleep(options.bringToFront ? 1400 : 1000);
     await waitForBoundImageReady(activeBinding);
 
     activeBinding = (await ensureBinding()) || activeBinding;
@@ -5294,7 +5358,7 @@ export async function captureRenderedImageFallbackInEditModeOnPage(page, docPlan
     let finalImageSnapshot = imageSnapshot;
     try {
       await elementHandle.evaluate((node) => node.scrollIntoView({ block: 'center', inline: 'nearest' }));
-      await page.waitForTimeout(options.bringToFront ? 1400 : 1000);
+      await sleep(options.bringToFront ? 1400 : 1000);
 
       finalImageSnapshot = await inspectBoundImage(activeBinding);
       const finalIdentity = evaluateImageIdentity(activeBinding, finalImageSnapshot);
@@ -5462,7 +5526,7 @@ async function captureRenderedImageFallbackOnPage(page, docPlan, fallback, targe
     };
   }
 
-  await page.waitForTimeout(options.bringToFront ? 2200 : 1500);
+  await sleep(options.bringToFront ? 2200 : 1500);
 
   try {
     await page.waitForFunction(
@@ -5562,7 +5626,7 @@ async function captureRenderedImageFallbackOnPage(page, docPlan, fallback, targe
   try {
     try {
       await elementHandle.evaluate((node) => node.scrollIntoView({ block: 'center', inline: 'nearest' }));
-      await page.waitForTimeout(options.bringToFront ? 1400 : 1000);
+      await sleep(options.bringToFront ? 1400 : 1000);
     } catch {
       // Ignore scroll timing failures and still attempt the screenshot.
     }
@@ -6200,11 +6264,13 @@ async function executeComplexArtifactWorkerProcess(config, task) {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        YUQUE_EXPORTER_CONFIG: JSON.stringify(config),
+        YUQUE_EXPORTER_CONFIG_STDIN: '1',
         YUQUE_COMPLEX_ARTIFACT_TASK_FILE: taskFile,
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    child.stdin?.end(JSON.stringify(config));
 
     const parseStdoutChunk = (chunk) => {
       const text = chunk.toString();
@@ -7501,7 +7567,7 @@ async function switchStandaloneTableToGridView(page) {
   });
 
   if (clicked) {
-    await page.waitForTimeout(1200);
+    await sleep(1200);
   }
 }
 
@@ -9715,7 +9781,7 @@ function injectBoardsIntoMarkdownBySlots(markdown, boards, targetMdPath, cardSlo
 
 export function mergeMarkdownWithArtifacts(markdown, artifacts, targetMdPath, sourceDocUrl = '', options = {}) {
   const normalizedArtifacts = normalizeArtifacts(artifacts);
-  const encryptedBlockRenderPlan = options.encryptedBlockRenderPlan || buildPlainEncryptedBlockRenderPlan(normalizedArtifacts);
+  const encryptedBlockRenderPlan = options.encryptedBlockRenderPlan || buildPlainEncryptedBlockRenderPlan(artifacts);
   let output = markdown.trimEnd();
   let positionedEncryptedInsertCount = 0;
 
@@ -11297,11 +11363,19 @@ function normalizeArtifacts(artifacts = {}) {
   };
 }
 
+function toEncryptedBlockPlaceholder(block = {}) {
+  const order = Number.isFinite(Number(block.order)) ? ` #${Number(block.order) + 1}` : '';
+  return `> 🔒 加密内容${order}未重新加密，已为保护隐私跳过明文导出。`;
+}
+
 function buildPlainEncryptedBlockRenderPlan(artifacts = {}) {
   const normalizedArtifacts = normalizeArtifacts(artifacts);
+  const sourceWasUnlocked = !Array.isArray(artifacts?.encryptedBlocks) || artifacts.encryptedBlocks.length === 0;
   return {
     mode: 'off',
-    blocks: normalizedArtifacts.encryptedBlocks.map((block) => toBlockQuote(block.text)),
+    blocks: sourceWasUnlocked
+      ? normalizedArtifacts.encryptedBlocks.map((block) => toBlockQuote(block.text))
+      : normalizedArtifacts.encryptedBlocks.map((block) => toEncryptedBlockPlaceholder(block)),
     warnings: [],
     summary: {
       mode: 'off',
@@ -11317,6 +11391,22 @@ function buildPlainEncryptedBlockRenderPlan(artifacts = {}) {
 
 export async function buildEncryptedBlockRenderPlan(artifacts = {}, options = {}) {
   const normalizedArtifacts = normalizeArtifacts(artifacts);
+  if ((!Array.isArray(artifacts?.encryptedBlocks) || artifacts.encryptedBlocks.length === 0) && Array.isArray(artifacts?.encryptedTexts)) {
+    return {
+      mode: 'off',
+      blocks: normalizedArtifacts.encryptedBlocks.map((block) => toBlockQuote(block.text)),
+      warnings: [],
+      summary: {
+        mode: 'off',
+        totalBlocks: normalizedArtifacts.encryptedBlocks.length,
+        encryptedBlockCount: 0,
+        plainFallbackBlockCount: normalizedArtifacts.encryptedBlocks.length,
+        missingPasswordBlockOrders: [],
+        failedBlockOrders: [],
+        globalPasswordConfigured: false,
+      },
+    };
+  }
   const mode = normalizeReencryptMode(options.reencryptEncryptedBlocksMode || options.mode);
   const globalPassword = String(options.reencryptGlobalPassword || '').trim();
   const blocks = [];
@@ -11326,7 +11416,7 @@ export async function buildEncryptedBlockRenderPlan(artifacts = {}, options = {}
 
   for (const block of normalizedArtifacts.encryptedBlocks) {
     const orderNumber = Number(block.order) + 1;
-    const plaintextBlock = toBlockQuote(block.text);
+    const plaintextBlock = toEncryptedBlockPlaceholder(block);
 
     if (mode === 'off') {
       blocks.push(plaintextBlock);
@@ -11361,7 +11451,7 @@ export async function buildEncryptedBlockRenderPlan(artifacts = {}, options = {}
     warnings.push({
       phase: 'write-markdown',
       errorType: 'EncryptedBlockReencryptionSkipped',
-      errorMessage: `Encrypted block re-encryption mode "global" could not run because no global password was configured. Falling back to plaintext for ${normalizedArtifacts.encryptedBlocks.length} block(s).`,
+      errorMessage: `Encrypted block re-encryption mode "global" could not run because no global password was configured. Encrypted content was replaced with privacy placeholders for ${normalizedArtifacts.encryptedBlocks.length} block(s).`,
     });
   }
 
@@ -11371,7 +11461,7 @@ export async function buildEncryptedBlockRenderPlan(artifacts = {}, options = {}
       errorType: 'EncryptedBlockReencryptionSkipped',
       errorMessage: `Encrypted block re-encryption mode "matched-block" could not find matched passwords for ${missingPasswordBlockOrders.length} block(s): ${missingPasswordBlockOrders
         .map((order) => `#${order}`)
-        .join(', ')}. Those blocks were kept as plaintext.`,
+        .join(', ')}. Those blocks were replaced with privacy placeholders.`,
     });
   }
 
@@ -11381,7 +11471,7 @@ export async function buildEncryptedBlockRenderPlan(artifacts = {}, options = {}
       errorType: 'EncryptedBlockReencryptionFailed',
       errorMessage: `Encrypted block re-encryption mode "${mode}" failed for ${failedBlocks.length} block(s): ${failedBlocks
         .map((block) => `#${block.order}`)
-        .join(', ')}. Those blocks were kept as plaintext. First error: ${failedBlocks[0].reason}`,
+        .join(', ')}. Those blocks were replaced with privacy placeholders. First error: ${failedBlocks[0].reason}`,
     });
   }
 

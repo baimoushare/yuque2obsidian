@@ -2,7 +2,6 @@
 
 # dependencies
 /node_modules
-/test
 /output
 /.pnp
 .pnp.js
@@ -10,7 +9,6 @@
 # testing
 /coverage
 cookies.json
-test/*
 
 # production
 /build
@@ -39,3 +37,8 @@ desktop-launch.log
 # local runtime artifacts
 /.yuque-login-profile
 /crash-reports
+/runtime-validation/
+/.tmp-automation/
+*.log
+*.bak
+*.jsonl

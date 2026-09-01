@@ -4,8 +4,10 @@
 a = Analysis(
     ['desktop_app.py'],
     pathex=[],
-    binaries=[('C:\\Program Files\\nodejs\\node.exe', 'bin')],
-    datas=[('desktop', 'desktop'), ('src', 'src'), ('node_modules', 'node_modules'), ('cookies.json', '.'), ('desktop.settings.json', '.')],
+    # Node.js 由构建脚本通过 --add-binary 注入，避免写死开发者本机路径。
+    binaries=[],
+    # 登录 Cookie 和本地配置必须由用户首次运行时生成，不能进入公开构建产物。
+    datas=[('desktop', 'desktop'), ('src', 'src'), ('node_modules', 'node_modules')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +37,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['D:\\01. 个人创作\\编程工具\\01. PC软件\\09.语雀笔记导出MD\\build\\app-icon.ico'],
+    # 正式构建由 build_windows_exe.ps1 提供临时 ICO 图标。
+    icon=None,
 )
