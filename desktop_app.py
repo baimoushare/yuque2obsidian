@@ -66,7 +66,9 @@ def acquire_single_instance_guard():
         return True
 
     try:
-        mutex_name = "Global\\YuqueExporterObsidianDesktop"
+        # v0.8.0 之前的进程可能仍持有旧名称，升级后的首个 EXE 不能因此永远无法启动。
+        # 固定 V2 名称只用于当前桌面运行时；同版本多开仍会被拒绝。
+        mutex_name = "Global\\YuqueExporterObsidianDesktopV2"
         # CreateMutexW 成功创建时不保证会主动清空线程的上一次 Win32 错误码。
         # 先清零，才能避免历史 ERROR_ALREADY_EXISTS(183) 被误判成已有实例。
         ctypes.windll.kernel32.SetLastError(0)

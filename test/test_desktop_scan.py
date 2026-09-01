@@ -1,8 +1,9 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import desktop_app
 from desktop_app import DesktopApi
 
 
@@ -57,6 +58,20 @@ class DesktopScanCompatibilityTests(unittest.TestCase):
             self.assertNotEqual(first_path, second_path)
             self.assertTrue(Path(first_path).is_file())
             self.assertTrue(Path(second_path).is_file())
+
+    def test_single_instance_guard_uses_new_mutex_name_and_rejects_second_instance(self):
+        kernel32 = MagicMock()
+        kernel32.CreateMutexW.return_value = 100
+        kernel32.GetLastError.return_value = 183
+
+        with patch("desktop_app.SINGLE_INSTANCE_MUTEX", None), patch("desktop_app.ctypes.windll.kernel32", kernel32), patch(
+            "desktop_app.append_launch_log"
+        ):
+            self.assertFalse(desktop_app.acquire_single_instance_guard())
+
+        self.assertEqual(kernel32.CreateMutexW.call_args.args[2], "Global\\YuqueExporterObsidianDesktopV2")
+        kernel32.SetLastError.assert_called_once_with(0)
+        kernel32.CloseHandle.assert_called_once_with(100)
 
 
 if __name__ == "__main__":
