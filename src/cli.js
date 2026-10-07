@@ -1,7 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { exportBooks, runComplexArtifactWorkerTask, scanBooksWithDiagnostics } from './exporter.js';
+import {
+  exportBooks,
+  exportDocumentSources,
+  runComplexArtifactWorkerTask,
+  scanBooksWithDiagnostics,
+  scanDocumentSources,
+} from './exporter.js';
+import { ExportControl } from './export-state.js';
 import { normalizeReencryptMode } from './meld-encrypt.js';
 import {
   createHttpClient,
@@ -9,6 +16,7 @@ import {
   fetchCurrentUser,
   runManualLogin,
 } from './yuque.js';
+import { normalizeAssetDirectoryName } from './utils.js';
 
 function emit(payload) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
@@ -40,6 +48,8 @@ export function parseCliConfig(rawConfig) {
     selectedBooks: parsed.selectedBooks || [],
     fullySelectedBooks: parsed.fullySelectedBooks || [],
     selectedDocuments: parsed.selectedDocuments || [],
+    selectedDocumentKeys: parsed.selectedDocumentKeys || [],
+    retrySourceDocuments: Array.isArray(parsed.retrySourceDocuments) ? parsed.retrySourceDocuments : [],
     downloadImages: parsed.downloadImages ?? true,
     downloadAttachments: parsed.downloadAttachments ?? true,
     incrementalExport: parsed.incrementalExport ?? true,
@@ -52,6 +62,7 @@ export function parseCliConfig(rawConfig) {
     diagramExportMode: parsed.diagramExportMode || 'auto',
     diagramSnapshotMode: parsed.diagramSnapshotMode || 'fallback-only',
     assetLayout: parsed.assetLayout || 'book_assets',
+    assetDirectoryName: normalizeAssetDirectoryName(parsed.assetDirectoryName),
     // 桌面端点击“切换账号”时会传入该标记。
     // 这里必须保留下来，否则后续 runManualLogin 会误以为是普通登录，
     // 直接复用 cookies.json / 浏览器资料目录里的旧会话，表现为按钮点击后没有反应。
@@ -92,6 +103,36 @@ async function main() {
       emit({ type: 'result', status: 'success', ...scanResult });
       break;
     }
+    case 'scan-sources': {
+      await ensureAuthenticatedCookieFile(config);
+      const control = new ExportControl(config.jobControlPath);
+      try {
+        const result = await scanDocumentSources(config, {
+          control,
+          onProgress: (progress) => emit({
+            type: 'progress',
+            phase: 'source-scan',
+            status: 'running',
+            ...progress,
+            percent: progress.totalItems
+              ? Math.round((progress.completedItems / progress.totalItems) * 100)
+              : 100,
+            message: `正在读取收藏列表 ${progress.completedItems}/${progress.totalItems}`,
+          }),
+        });
+        emit({
+          type: 'result',
+          ...result,
+          status: result.cancelled ? 'cancelled' : 'success',
+          ...(result.cancelled
+            ? { message: '收藏与协作文档扫描已取消；未使用部分扫描结果。' }
+            : {}),
+        });
+      } finally {
+        control.clear();
+      }
+      break;
+    }
     case 'whoami': {
       await ensureAuthenticatedCookieFile(config);
       const user = await fetchCurrentUser(createHttpClient(config.cookiePath));
@@ -102,6 +143,32 @@ async function main() {
       await ensureAuthenticatedCookieFile(config);
       await exportBooks(config, emit);
       break;
+    case 'export-sources':
+      await ensureAuthenticatedCookieFile(config);
+      await exportDocumentSources(config, emit);
+      break;
+    case 'export-source-retry': {
+      await ensureAuthenticatedCookieFile(config);
+      const retryDocuments = config.retrySourceDocuments;
+      const selectedKeys = new Set(config.selectedDocumentKeys.map((key) => String(key).trim()).filter(Boolean));
+      if (
+        retryDocuments.length === 0
+        || selectedKeys.size === 0
+        || retryDocuments.some((document) => !selectedKeys.has(String(document?.documentKey || '').trim()))
+        || retryDocuments.length !== selectedKeys.size
+      ) {
+        throw new Error('来源失败重试必须只包含与显式选择完全匹配的文档身份。');
+      }
+      await exportDocumentSources(config, emit, {
+        sourceResult: {
+          complete: false,
+          totalItems: retryDocuments.length,
+          documents: retryDocuments,
+          excluded: [],
+        },
+      });
+      break;
+    }
     case 'capture-artifacts-worker': {
       await ensureAuthenticatedCookieFile(config);
       const taskFile = process.env.YUQUE_COMPLEX_ARTIFACT_TASK_FILE || '';

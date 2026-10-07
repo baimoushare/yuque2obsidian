@@ -64,6 +64,44 @@ test('validateBinaryAssetResponse rejects html payloads for image downloads', ()
   );
 });
 
+test('validateBinaryAssetResponse rejects HTTP 200 HTML error pages for attachments', () => {
+  for (const response of [
+    {
+      data: Buffer.from('<!doctype html><html><body>Not found</body></html>', 'utf8'),
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    },
+    {
+      data: Buffer.from('<html><body>Login required</body></html>', 'utf8'),
+      headers: { 'content-type': 'application/octet-stream' },
+    },
+  ]) {
+    assert.throws(
+      () => validateBinaryAssetResponse(response, {
+        assetUrl: 'https://cdn.example.com/document.pdf',
+        kind: 'attachment',
+      }),
+      /HTML document instead of (?:asset|attachment) bytes/i,
+    );
+  }
+});
+
+test('validateBinaryAssetResponse rejects empty attachments and accepts non-HTML binary data', () => {
+  assert.throws(
+    () => validateBinaryAssetResponse(
+      { data: Buffer.alloc(0), headers: { 'content-type': 'application/pdf' } },
+      { assetUrl: 'https://cdn.example.com/document.pdf', kind: 'attachment' },
+    ),
+    /was empty/,
+  );
+  assert.equal(
+    validateBinaryAssetResponse(
+      { data: Buffer.from('%PDF-1.7 sample'), headers: { 'content-type': 'application/pdf' } },
+      { assetUrl: 'https://cdn.example.com/document.pdf', kind: 'attachment' },
+    ).data.toString('utf8'),
+    '%PDF-1.7 sample',
+  );
+});
+
 test('validateBinaryAssetResponse rejects known placeholder image payloads before saving them as local assets', () => {
   const pngBuffer = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5QAAAABJRU5ErkJggg==',

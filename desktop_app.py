@@ -14,7 +14,7 @@ from pathlib import Path
 
 import webview
 
-from desktop_retry import build_retry_export_plan
+from desktop_retry import build_retry_export_plan, build_source_retry_plan
 from desktop_update import UpdateError, UpdateService, apply_update_task
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
@@ -595,6 +595,46 @@ class DesktopApi:
             "skippedBooks": payload.get("skippedBooks", len(warnings)),
         }
 
+    def scanDocumentSources(self, config=None):
+        """扫描收藏来源中的具体文档；知识库入口仅作为排除项返回，不展开目录。"""
+        result = self._run_process_sync("scan-sources", config or {})
+        payload = result.get("payload") or {}
+        documents = payload.get("documents")
+        excluded = payload.get("excluded")
+        if not isinstance(documents, list) or not isinstance(excluded, list):
+            raise RuntimeError("收藏/协作文档扫描响应无效，不能将错误当成空列表。")
+        return {
+            "documents": documents,
+            "excluded": excluded,
+            "excludedCount": payload.get("excludedCount", len(excluded)),
+            "totalItems": payload.get("totalItems", len(documents) + len(excluded)),
+            "pageCount": payload.get("pageCount", 0),
+        }
+
+    def startDocumentSourceScan(self, config=None):
+        """以可取消的后台任务扫描来源，避免长分页请求阻塞桌面界面。"""
+        running_scan = next(
+            (
+                job for job in self.jobs.values()
+                if job.get("kind") == "source-scan" and job.get("status") in {"running", "stopping"}
+            ),
+            None,
+        )
+        if running_scan:
+            return {"jobId": running_scan["id"], "reused": True}
+
+        merged = self._default_settings()
+        merged.update(config or {})
+        job_id = self._create_job("source-scan")
+        control_dir = USER_DATA_DIR / "job-controls"
+        control_dir.mkdir(parents=True, exist_ok=True)
+        merged["jobControlPath"] = str(control_dir / f".yuque-source-scan-{job_id}.json")
+        job = self.jobs[job_id]
+        job["config"] = merged
+        job["controlPath"] = merged["jobControlPath"]
+        self._run_process_job(job_id, "scan-sources", merged)
+        return {"jobId": job_id}
+
     def startExport(self, config=None):
         running_export = next(
             (
@@ -616,12 +656,72 @@ class DesktopApi:
         self._run_process_job(job_id, "export", merged)
         return {"jobId": job_id}
 
+    def startDocumentSourceExport(self, config=None):
+        merged = self._default_settings()
+        merged.update(config or {})
+        selected_keys = merged.get("selectedDocumentKeys")
+        if not isinstance(selected_keys, list) or not any(str(key).strip() for key in selected_keys):
+            raise ValueError("请先选择至少一篇收藏/协作文档。")
+        retry_documents = merged.get("retrySourceDocuments") or []
+        if retry_documents:
+            retry_keys = [str(document.get("documentKey") or "").strip() for document in retry_documents]
+            selected_key_set = {str(key).strip() for key in selected_keys if str(key).strip()}
+            if (
+                len(retry_keys) != len(selected_key_set)
+                or any(not key for key in retry_keys)
+                or set(retry_keys) != selected_key_set
+            ):
+                raise ValueError("来源失败重试文档必须与显式选择的身份完全一致。")
+
+        running_export = next(
+            (
+                job for job in self.jobs.values()
+                if job.get("kind") == "export" and job.get("status") in {"running", "pausing", "stopping"}
+            ),
+            None,
+        )
+        if running_export:
+            return {"jobId": running_export["id"], "reused": True}
+
+        job_id = self._create_job("export")
+        merged["jobControlPath"] = str(Path(merged["outputDir"]) / f".yuque-export-control-{job_id}.json")
+        job = self.jobs[job_id]
+        job["config"] = merged
+        job["controlPath"] = merged["jobControlPath"]
+        command = "export-source-retry" if retry_documents else "export-sources"
+        self._run_process_job(job_id, command, merged)
+        return {"jobId": job_id}
+
     def startRetryExportFromFailureCsv(self, config=None):
         merged = self._default_settings()
         merged.update(config or {})
         failure_csv_path = str(merged.get("failureCsvPath") or "").strip()
         if not failure_csv_path:
             raise ValueError("请先选择失败日志 CSV。")
+
+        source_retry_plan = build_source_retry_plan(failure_csv_path)
+        if source_retry_plan:
+            merged.update({
+                "outputDir": source_retry_plan["outputDir"],
+                "selectedDocumentKeys": source_retry_plan["selectedDocumentKeys"],
+                "retrySourceDocuments": source_retry_plan["retrySourceDocuments"],
+                "incrementalExport": False,
+            })
+            result = self.startDocumentSourceExport(merged)
+            result.update({
+                "outputDir": source_retry_plan["outputDir"],
+                "rowCount": source_retry_plan["rowCount"],
+                "documentCount": source_retry_plan["documentCount"],
+                "bookCount": 0,
+                "selectedBooks": [],
+                "selectedDocuments": [],
+                "selectedDocumentKeys": source_retry_plan["selectedDocumentKeys"],
+                "retrySourceDocuments": source_retry_plan["retrySourceDocuments"],
+                "sourceRetry": True,
+                "unmatchedDocuments": [],
+                "failureCsvPath": source_retry_plan["failureCsvPath"],
+            })
+            return result
 
         books = self.scanBooks(merged)
         retry_plan = build_retry_export_plan(merged, failure_csv_path, books)
@@ -681,13 +781,23 @@ class DesktopApi:
         job["requestedStatus"] = "cancelled"
         job["status"] = "stopping"
         job["logs"].append("Stop requested. The current progress will be saved.")
-        job["logs"].append("If the exporter does not stop by itself, it will be force-stopped automatically in 5 seconds.")
+        # 单页 HTTP 超时为 120 秒；扫描取消应等当前页请求自然结束，再留少量收尾时间。
+        grace_seconds = 125 if job.get("kind") == "source-scan" else 5
+        job["logs"].append(
+            "Waiting for the current list page to finish before stopping."
+            if job.get("kind") == "source-scan"
+            else "If the exporter does not stop by itself, it will be force-stopped automatically in 5 seconds."
+        )
         job["updatedAt"] = self._now_iso()
         self._schedule_forced_shutdown(
             job,
             requested_status="cancelled",
-            grace_seconds=5,
-            log_message="Force-stopped the exporter because it did not respond to the stop request in time.",
+            grace_seconds=grace_seconds,
+            log_message=(
+                "Force-stopped the source scan because the current list page did not finish in time."
+                if job.get("kind") == "source-scan"
+                else "Force-stopped the exporter because it did not respond to the stop request in time."
+            ),
         )
         if control_path:
             return {"status": job["status"]}
@@ -799,10 +909,10 @@ class DesktopApi:
         return {
             "browserPath": "",
             "cookiePath": str(USER_DATA_DIR / "cookies.json"),
-            "outputDir": str(USER_DATA_DIR / "output"),
+            "outputDir": str(Path.home() / "Downloads"),
             "obsidianVaultPath": "",
             # 不默认安装社区插件；用户需要在界面中明确选择后才执行。
-            "obsidianSetupMode": "none",
+            "obsidianSetupMode": "bases+community",
             "vaultExportLayout": "direct-to-vault",
             "vaultExportSubdir": "语雀导出",
             "downloadImages": True,
@@ -818,6 +928,7 @@ class DesktopApi:
             "diagramExportMode": "auto",
             "diagramSnapshotMode": "fallback-only",
             "assetLayout": "book_assets",
+            "assetDirectoryName": "_assets",
             "jobControlPath": "",
             "autoCheckUpdates": True,
         }
@@ -838,8 +949,27 @@ class DesktopApi:
         merged["complexBlockMode"] = self._normalize_complex_block_mode(merged.get("complexBlockMode"))
         merged["diagramExportMode"] = self._normalize_diagram_export_mode(merged.get("diagramExportMode"))
         merged["diagramSnapshotMode"] = self._normalize_diagram_snapshot_mode(merged.get("diagramSnapshotMode"))
+        merged["assetDirectoryName"] = self._normalize_asset_directory_name(merged.get("assetDirectoryName"))
         merged["autoCheckUpdates"] = self._normalize_bool(merged.get("autoCheckUpdates"), True)
         return merged
+
+    def _normalize_asset_directory_name(self, value):
+        normalized = str(value or "").strip()
+        # 资源目录名只能是单层目录名，避免用户输入改变导出根路径。
+        reserved_names = {"con", "prn", "aux", "nul"}
+        reserved_names.update(f"com{number}" for number in range(1, 10))
+        reserved_names.update(f"lpt{number}" for number in range(1, 10))
+        if (
+            not normalized
+            or normalized in {".", ".."}
+            or len(normalized) > 80
+            or normalized.endswith((".", " "))
+            or any(char in normalized for char in '<>:"/\\|?*')
+            or any(ord(char) < 32 for char in normalized)
+            or normalized.split(".", 1)[0].lower() in reserved_names
+        ):
+            return "_assets"
+        return normalized
 
     def _normalize_bool(self, value, default=False):
         if isinstance(value, bool):
@@ -1145,6 +1275,7 @@ class DesktopApi:
     def _summarize_config_for_log(self, config):
         selected_books = config.get("selectedBooks") or []
         selected_documents = config.get("selectedDocuments") or []
+        selected_document_keys = config.get("selectedDocumentKeys") or []
         fully_selected_books = config.get("fullySelectedBooks") or []
         encrypted_passwords = config.get("encryptedBlockPasswords") or []
         return {
@@ -1158,6 +1289,7 @@ class DesktopApi:
             "selectedBookCount": len(selected_books),
             "fullySelectedBookCount": len(fully_selected_books),
             "selectedDocumentCount": len(selected_documents),
+            "selectedDocumentKeyCount": len(selected_document_keys),
             "downloadImages": bool(config.get("downloadImages", True)),
             "downloadAttachments": bool(config.get("downloadAttachments", True)),
             "incrementalExport": bool(config.get("incrementalExport", True)),
@@ -1168,6 +1300,7 @@ class DesktopApi:
             "diagramExportMode": config.get("diagramExportMode") or "",
             "diagramSnapshotMode": config.get("diagramSnapshotMode") or "",
             "assetLayout": config.get("assetLayout") or "",
+            "assetDirectoryName": config.get("assetDirectoryName") or "_assets",
             "forceReauth": bool(config.get("forceReauth")),
             "hasJobControlPath": bool(config.get("jobControlPath")),
             "encryptedPasswordCount": len(encrypted_passwords),

@@ -1,1 +1,7 @@
-export { exportBooks, exportMarkDownFiles, scanBooks } from './exporter.js';
+export {
+  exportBooks,
+  exportDocumentSources,
+  exportMarkDownFiles,
+  scanBooks,
+  scanDocumentSources,
+} from './exporter.js';

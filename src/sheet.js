@@ -70,6 +70,86 @@ export function buildWorksheetCsv(worksheet = {}) {
   return `${grid.map((row) => row.map((cell) => escapeCsv(cell)).join(',')).join('\n')}\n`;
 }
 
+export function buildWorksheetBaseDataset(worksheet = {}) {
+  const grid = Array.isArray(worksheet.grid) ? worksheet.grid : [];
+  const width = grid.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+  if (grid.length < 2 || width === 0) {
+    return { columns: [], rows: [] };
+  }
+
+  const headerCells = Array.isArray(worksheet.rows?.[0]?.cells) ? worksheet.rows[0].cells : [];
+  const coveredColumns = new Set();
+  const columns = [];
+  for (const cell of headerCells) {
+    const start = Number(cell?.colIndex);
+    if (!Number.isInteger(start) || start < 0 || start >= width || coveredColumns.has(start)) {
+      continue;
+    }
+    const span = Math.max(1, Number(cell?.colSpan) || 1);
+    const end = Math.min(width, start + span);
+    for (let column = start; column < end; column += 1) coveredColumns.add(column);
+    columns.push({
+      key: `col_${String(columns.length + 1).padStart(2, '0')}`,
+      displayName: String(cell?.text || '').trim() || `列${start + 1}`,
+      start,
+      end,
+    });
+  }
+
+  for (let column = 0; column < width; column += 1) {
+    if (coveredColumns.has(column)) continue;
+    columns.push({
+      key: `col_${String(columns.length + 1).padStart(2, '0')}`,
+      displayName: `列${column + 1}`,
+      start: column,
+      end: column + 1,
+    });
+  }
+  columns.sort((left, right) => left.start - right.start);
+  columns.forEach((column, index) => {
+    column.key = `col_${String(index + 1).padStart(2, '0')}`;
+  });
+
+  const rows = grid.slice(1).map((sourceRow) => {
+    const values = {};
+    for (const column of columns) {
+      values[column.key] = sourceRow
+        .slice(column.start, column.end)
+        .map((value) => String(value ?? '').replace(/\s+/gu, ' ').trim())
+        .filter(Boolean)
+        .join(' ');
+    }
+    return values;
+  }).filter((row) => Object.values(row).some((value) => value !== ''));
+
+  return { columns, rows };
+}
+
+export function buildWorksheetBaseFile({ datasetId, worksheet = {} }) {
+  const { columns } = buildWorksheetBaseDataset(worksheet);
+  const lines = [
+    'filters:',
+    '  and:',
+    '    - file.ext == "md"',
+    `    - dataset == ${JSON.stringify(String(datasetId || ''))}`,
+    'properties:',
+  ];
+
+  for (const column of columns) {
+    lines.push(`  ${JSON.stringify(column.key)}:`);
+    lines.push(`    displayName: ${JSON.stringify(column.displayName)}`);
+  }
+
+  lines.push(
+    'views:',
+    '  - type: table',
+    `    name: ${JSON.stringify(String(worksheet.name || '表格'))}`,
+    '    order:',
+    ...columns.map((column) => `      - ${JSON.stringify(column.key)}`),
+  );
+  return `${lines.join('\n')}\n`;
+}
+
 export function buildWorksheetHtmlFragment(worksheet = {}) {
   const rows = Array.isArray(worksheet.rows) ? worksheet.rows : [];
   const body = rows
@@ -77,6 +157,7 @@ export function buildWorksheetHtmlFragment(worksheet = {}) {
       const cells = (row.cells || [])
         .map((cell) => {
           const attributes = [];
+          const styles = [];
           if (cell.rowSpan > 1) {
             attributes.push(` rowspan="${cell.rowSpan}"`);
           }
@@ -86,6 +167,18 @@ export function buildWorksheetHtmlFragment(worksheet = {}) {
           if (cell.formula) {
             attributes.push(` data-formula="${escapeHtmlAttribute(cell.formula)}"`);
           }
+          // 仅允许来自工作簿调色板的标准颜色值，避免将原始数据拼入 HTML 样式。
+          if (cell.backgroundColor && /^#[\da-f]{6}$/iu.test(cell.backgroundColor)) {
+            styles.push(`background-color:${cell.backgroundColor}`);
+          }
+          if (cell.color && /^(?:#[\da-f]{6}|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\))$/iu.test(cell.color)) {
+            styles.push(`color:${cell.color}`);
+          }
+          // 保留源单元格中的显式换行，但不因列宽而自动折行；统一紧凑行高并居中。
+          styles.push('white-space:pre', 'text-align:center', 'vertical-align:middle', 'padding:4px 8px', 'line-height:1.35');
+          if (styles.length > 0) {
+            attributes.push(` style="${styles.join(';')}"`);
+          }
           const text = cell.text ? escapeHtml(cell.text).replace(/\n/g, '<br />') : '&nbsp;';
           return `<td${attributes.join('')}>${text}</td>`;
         })
@@ -94,7 +187,7 @@ export function buildWorksheetHtmlFragment(worksheet = {}) {
     })
     .join('\n');
 
-  return `<table class="sheet-table">\n<tbody>\n${body}\n</tbody>\n</table>`;
+  return `<table class="sheet-table" style="width:max-content;max-width:100%;border-collapse:collapse;table-layout:auto">\n<tbody>\n${body}\n</tbody>\n</table>`;
 }
 
 export function buildWorksheetHtmlDocument(title, worksheet = {}) {
@@ -263,7 +356,7 @@ function normalizeWorksheet(sheet = {}, index = 0) {
   const merges = normalizeMergeCells(sheet?.mergeCells);
   const bounds = detectUsedBounds(sheet, merges);
   const grid = buildGrid(sheet, bounds);
-  const rows = buildWorksheetRows(sheet, bounds, merges);
+  const rows = buildWorksheetRows(sheet, bounds, merges, sheet?.vStore || {});
 
   return {
     index,
@@ -361,7 +454,7 @@ function buildGrid(sheet = {}, bounds = {}) {
   return grid;
 }
 
-function buildWorksheetRows(sheet = {}, bounds = {}, merges) {
+function buildWorksheetRows(sheet = {}, bounds = {}, merges, valueStore = {}) {
   if (!Number.isInteger(bounds.maxRow) || !Number.isInteger(bounds.maxCol) || bounds.maxRow < 0 || bounds.maxCol < 0) {
     return [];
   }
@@ -375,7 +468,9 @@ function buildWorksheetRows(sheet = {}, bounds = {}, merges) {
         continue;
       }
       const merge = merges.anchors.get(key);
-      const info = extractCellInfo(sheet?.data?.[rowIndex]?.[colIndex]);
+      const rawCell = sheet?.data?.[rowIndex]?.[colIndex];
+      const info = extractCellInfo(rawCell);
+      const styleIndex = Number(rawCell?.s);
       cells.push({
         rowIndex,
         colIndex,
@@ -383,6 +478,8 @@ function buildWorksheetRows(sheet = {}, bounds = {}, merges) {
         formula: info.formula,
         rowSpan: merge?.rowCount || 1,
         colSpan: merge?.colCount || 1,
+        backgroundColor: Number.isInteger(styleIndex) ? String(valueStore.style_backColor?.[styleIndex] || '') : '',
+        color: Number.isInteger(styleIndex) ? String(valueStore.style_color?.[styleIndex] || '') : '',
       });
     }
     rows.push({ index: rowIndex, cells });

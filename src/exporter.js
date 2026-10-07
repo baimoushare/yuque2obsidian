@@ -18,6 +18,8 @@ import {
   writeObsidianSetupNote,
 } from './obsidian.js';
 import { filterBooks, getAllBooks, scanAllBooks, serializeBooks } from './toc.js';
+import { buildDocumentPlan } from './document-plan.js';
+import { deduplicateDocumentEntries, fetchAllMarks, normalizeMarkActions } from './document-sources.js';
 import { extractBoardsFromDocDetail, isBoardDocument } from './board.js';
 import { createBoardManifest, createBoardRenderPlan, normalizeDiagramExportMode, normalizeDiagramSnapshotMode } from './board-render.js';
 import { readExcalidrawScene, validateExcalidrawScene, writeExcalidrawDrawing } from './excalidraw.js';
@@ -42,6 +44,9 @@ import {
   toDatatableRecordTitle,
 } from './table.js';
 import {
+  buildWorksheetBaseDataset,
+  buildWorksheetBaseFile,
+  buildWorksheetHtmlFragment,
   buildWorkbookHtmlDocument,
   buildWorksheetCsv,
   buildWorksheetHtmlDocument,
@@ -53,6 +58,7 @@ import {
   escapeCsv,
   errorToMessage,
   formatTimestamp,
+  normalizeAssetDirectoryName,
   relativeMarkdownPath,
   sanitizeFileName,
   sleep,
@@ -189,6 +195,59 @@ function writeTextFileAtomically(filePath, content) {
   return backupPath;
 }
 
+function writeBinaryFileAtomically(filePath, content) {
+  const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  let backupPath = '';
+  if (fs.existsSync(filePath)) {
+    backupPath = `${filePath}.backup-${formatTimestamp()}`;
+    let counter = 2;
+    while (fs.existsSync(backupPath)) {
+      backupPath = `${filePath}.backup-${formatTimestamp()}-${counter}`;
+      counter += 1;
+    }
+    fs.renameSync(filePath, backupPath);
+  }
+  try {
+    fs.writeFileSync(temporary, content);
+    fs.renameSync(temporary, filePath);
+  } catch (error) {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    if (backupPath && !fs.existsSync(filePath) && fs.existsSync(backupPath)) {
+      fs.renameSync(backupPath, filePath);
+    }
+    throw error;
+  }
+  return backupPath;
+}
+
+function sanitizeDocumentSourceError(error) {
+  return errorToMessage(error)
+    .replace(/https?:\/\/[^\s"'<>]+/gi, (value) => {
+      try {
+        const url = new URL(value);
+        url.username = '';
+        url.password = '';
+        url.search = '';
+        url.hash = '';
+        return url.toString();
+      } catch {
+        return '[已脱敏 URL]';
+      }
+    })
+    .replace(/(cookie|authorization|token|signature|password|csrf)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[已脱敏]');
+}
+
+function classifyDocumentSourceFailure(error) {
+  const status = Number(error?.response?.status);
+  if (status === 401) return 'authentication-required';
+  if (status === 403) return 'restricted';
+  // 语雀可能用 404 隐藏不可访问对象；不能据此断言文档已删除。
+  if (status === 404) return 'unavailable';
+  if (status === 429) return 'rate-limited';
+  if (!error?.response) return 'network-or-client-error';
+  return 'other';
+}
+
 function buildDocLinkIndex(documents = [], exportRoot = '') {
   const index = {
     exact: new Map(),
@@ -256,6 +315,524 @@ export async function scanBooksWithDiagnostics(config) {
   };
 }
 
+export async function scanDocumentSources(config, options = {}) {
+  const client = options.client || createHttpClient(config.cookiePath);
+  const pageSize = Number(options.pageSize ?? 100);
+  const marks = await fetchAllMarks(client, {
+    pageSize,
+    maxItems: options.maxItems ?? 500,
+    control: options.control,
+    shouldStop: options.shouldStop,
+    onProgress: options.onProgress,
+  });
+  if (marks.cancelled) {
+    // 部分页不能归一化成可展示的来源快照，避免 UI 把不完整扫描覆盖成完整列表。
+    return {
+      complete: false,
+      cancelled: true,
+      totalItems: marks.totalItems,
+      completedItems: marks.actions.length,
+      pageCount: marks.pagesRead,
+    };
+  }
+  const normalized = normalizeMarkActions({ data: marks });
+  const deduplicated = deduplicateDocumentEntries(normalized);
+  return {
+    complete: true,
+    totalItems: marks.totalItems,
+    pageCount: marks.totalItems === 0 ? 0 : Math.ceil(marks.totalItems / pageSize),
+    documents: deduplicated.documents,
+    excluded: deduplicated.excluded,
+    excludedCount: deduplicated.excluded.length,
+  };
+}
+
+/**
+ * 导出显式选择的收藏/协作文档；不扫描知识库目录，也不进入编辑模式。
+ */
+export async function exportDocumentSources(config, emit = () => {}, options = {}) {
+  const client = options.client || createHttpClient(config.cookiePath);
+  const runArtifactWorker = options.runArtifactWorker || executeComplexArtifactWorkerProcess;
+  const exportControl = options.control || new ExportControl(config.jobControlPath);
+  const sourceResult = options.sourceResult || await scanDocumentSources(config, {
+    client,
+    control: exportControl,
+    onProgress: (progress) => emit({
+      type: 'progress',
+      phase: 'source-scan',
+      status: 'running',
+      ...progress,
+      percent: progress.totalItems
+        ? Math.round((progress.completedItems / progress.totalItems) * 100)
+        : 100,
+      message: `正在读取收藏列表 ${progress.completedItems}/${progress.totalItems}`,
+    }),
+  });
+  if (sourceResult.cancelled) {
+    const result = {
+      type: 'result',
+      status: 'cancelled',
+      phase: 'source-scan',
+      complete: false,
+      totalItems: sourceResult.totalItems,
+      completedItems: sourceResult.completedItems,
+      pageCount: sourceResult.pageCount,
+      message: '收藏与协作文档扫描已取消；保留此前完整列表，未使用部分扫描结果。',
+    };
+    emit(result);
+    exportControl.clear();
+    return result;
+  }
+  // 与知识库导出使用同一目录规则：正文/资源写内容目录，
+  // 报告、问题 CSV 和增量状态仍写输出目录，供既有失败重试读取。
+  const outputDir = path.resolve(config.outputDir);
+  const contentOutputDir = resolveContentOutputDir(config);
+  const plan = buildDocumentPlan(sourceResult.documents, {
+    outputDir: contentOutputDir,
+    selectedDocumentKeys: config.selectedDocumentKeys,
+    assetDirectoryName: config.assetDirectoryName,
+  });
+  ensureDir(outputDir);
+  const failureLogger = new FailureCsvLogger(outputDir);
+  const exportState = new ExportStateStore(outputDir);
+  for (const docPlan of plan.documents) {
+    const record = exportState.getRecordForDocument(docPlan);
+    const savedPath = path.resolve(String(record?.targetMdPath || record?.outputPath || ''));
+    const isLegacyPath = Boolean(
+      record
+      && path.extname(savedPath).toLowerCase() === '.md'
+      && path.dirname(savedPath) !== path.dirname(docPlan.targetMdPath),
+    );
+    if (isLegacyPath && exportState.isLocalOutputModified({ ...docPlan, targetMdPath: savedPath })) {
+      docPlan.previousTargetMdPath = savedPath;
+      continue;
+    }
+    // 切换输出位置后，不让旧状态把新目标重新拉回原来的目录。
+    const relativeSavedPath = savedPath ? path.relative(contentOutputDir, savedPath) : '';
+    const legacyIdSuffixedName = `${sanitizeFileName(docPlan.title || '未命名文档')}__${docPlan.documentId}.md`;
+    // 只复用当前分类目录中的旧正文，避免迁移时继续沿用旧“文档/所有者”层级。
+    if (
+      record
+      && path.basename(savedPath) !== legacyIdSuffixedName
+      && path.extname(savedPath).toLowerCase() === '.md'
+      && path.dirname(savedPath) === path.dirname(docPlan.targetMdPath)
+      && relativeSavedPath
+      && !relativeSavedPath.startsWith('..')
+      && !path.isAbsolute(relativeSavedPath)
+    ) {
+      docPlan.targetMdPath = savedPath;
+      docPlan.assetDir = path.join(
+        path.dirname(savedPath),
+        normalizeAssetDirectoryName(config.assetDirectoryName),
+        docPlan.documentId,
+      );
+    }
+  }
+  exportState.syncDocumentSourceRelations(sourceResult.documents, { complete: sourceResult.complete === true });
+  const report = {
+    startedAt: new Date().toISOString(),
+    status: 'running',
+    source: 'favorites-and-collaborations',
+    outputDir,
+    contentOutputDir,
+    totals: {
+      listed: sourceResult.totalItems,
+      planned: plan.documents.length,
+      exported: 0,
+      skipped: 0,
+      failed: 0,
+      authenticationRequired: 0,
+      restricted: 0,
+      unavailable: 0,
+      unsupported: 0,
+      incomplete: 0,
+      protected: 0,
+    },
+    documents: [],
+    excluded: plan.excluded.map(({ itemType, sourceType, status }) => ({ itemType, sourceType, status })),
+  };
+
+  for (const [index, docPlan] of plan.documents.entries()) {
+    const requestedAction = exportControl.getAction();
+    if (requestedAction === 'pause' || requestedAction === 'stop') {
+      const processed = report.totals.exported
+        + report.totals.skipped
+        + report.totals.failed
+        + report.totals.unsupported
+        + report.totals.incomplete
+        + report.totals.protected;
+      const status = requestedAction === 'pause' ? 'paused' : 'cancelled';
+      emit({
+        type: 'progress',
+        phase: status,
+        status,
+        message: requestedAction === 'pause'
+          ? '来源文档已在当前文档结束后暂停。'
+          : '来源文档已在当前文档结束后停止。',
+        percent: Math.round((processed / Math.max(plan.documents.length, 1)) * 100),
+        completedDocuments: processed,
+        totalDocuments: plan.documents.length,
+      });
+      return finalizeDocumentSourcesExport(report, exportState, failureLogger, emit, status, sourceResult);
+    }
+
+    const displayName = docPlan.title || docPlan.documentId;
+    const bookName = docPlan.bookName || docPlan.owner || '来源未知';
+    emit({
+      type: 'progress',
+      phase: 'document-sources',
+      status: 'running',
+      doc: displayName,
+      message: `检查所选文档 ${index + 1}/${plan.documents.length}`,
+      percent: Math.round((index / Math.max(plan.documents.length, 1)) * 100),
+      completedDocuments: index,
+      totalDocuments: plan.documents.length,
+    });
+
+    if (!['Doc', 'Sheet'].includes(docPlan.documentType)) {
+      report.totals.unsupported += 1;
+      report.documents.push({
+        documentKey: docPlan.documentKey,
+        title: displayName,
+        path: docPlan.targetMdPath,
+        sourceRelations: docPlan.sourceRelations,
+        status: 'unsupported',
+        reason: `当前来源导出入口暂不处理 ${docPlan.documentType} 类型。`,
+      });
+      continue;
+    }
+
+    const previousRecord = exportState.getRecordForDocument(docPlan);
+    const previousPath = String(docPlan.previousTargetMdPath || previousRecord?.targetMdPath || previousRecord?.outputPath || '');
+    // 新位置若已有文件，但状态校验值属于旧位置，不能据此覆盖新位置的手写内容。
+    const untrackedTargetExists = fs.existsSync(docPlan.targetMdPath)
+      && (!previousPath || path.resolve(previousPath) !== path.resolve(docPlan.targetMdPath));
+    if (untrackedTargetExists || exportState.isLocalOutputModified(docPlan)) {
+      report.totals.protected += 1;
+      report.documents.push({
+        documentKey: docPlan.documentKey,
+        title: displayName,
+        path: docPlan.targetMdPath,
+        sourceRelations: docPlan.sourceRelations,
+        status: 'protected',
+        reason: '检测到本地文档已被修改或缺少可信的导出校验值；为避免覆盖，已保留原文件。',
+      });
+      continue;
+    }
+
+    if (config.incrementalExport !== false && exportState.shouldSkip(docPlan)) {
+      // 正文未变化时仍同步当前完整来源关系，避免收藏/协作标记长期留存旧值。
+      exportState.markExported(docPlan);
+      report.totals.skipped += 1;
+      report.documents.push({
+        documentKey: docPlan.documentKey,
+        title: displayName,
+        path: docPlan.targetMdPath,
+        sourceRelations: docPlan.sourceRelations,
+        status: 'skipped',
+      });
+      continue;
+    }
+
+    exportState.markQueued(docPlan);
+    try {
+      const detail = await fetchDocDetail(client, docPlan.documentSlug, docPlan.bookId);
+      if (!detail?.id || String(detail.id) !== String(docPlan.documentId)) {
+        throw new Error('语雀返回的文档详情标识与所选收藏条目不一致。');
+      }
+
+      if (classifyDocExportRoute(detail) === 'export-sheet') {
+        const artifactDocPlan = {
+          ...docPlan,
+          node: { name: displayName },
+        };
+        const artifactBookPlan = {
+          book: { id: String(docPlan.bookId || ''), name: bookName },
+          bookDir: path.dirname(docPlan.targetMdPath),
+          assets: {
+            spreadsheets: path.join(docPlan.assetDir, 'spreadsheets'),
+          },
+          assetNames: new Map(),
+        };
+        const spreadsheet = exportStandaloneSpreadsheetDocument(detail, artifactDocPlan, artifactBookPlan);
+        const markdown = buildStandaloneSpreadsheetMarkdown(artifactDocPlan, spreadsheet);
+        const backupPath = writeTextFileAtomically(docPlan.targetMdPath, markdown);
+        const sourceVersion = String(detail.content_updated_at ?? docPlan.sourceVersion ?? '').trim();
+        exportState.markExported({ ...docPlan, sourceVersion }, {
+          outputHash: crypto.createHash('sha256').update(markdown).digest('hex'),
+        });
+        report.totals.exported += 1;
+        report.documents.push({
+          documentKey: docPlan.documentKey,
+          title: displayName,
+          path: docPlan.targetMdPath,
+          sourceRelations: docPlan.sourceRelations,
+          status: 'exported',
+          sourceVersion: sourceVersion || null,
+          spreadsheet: {
+            sheetCount: spreadsheet.sheetCount,
+            files: spreadsheet.files,
+          },
+          backupPath: backupPath || undefined,
+        });
+        continue;
+      }
+
+      const embeddedBoards = extractBoardsFromDocDetail(detail);
+      const exportRoute = classifyDocExportRoute(detail);
+      const hasBoardOnlyBody = exportRoute === 'skip-empty' && embeddedBoards.length > 0;
+      if (exportRoute !== 'export-markdown' && !hasBoardOnlyBody) {
+        const isEmpty = exportRoute === 'skip-empty';
+        const status = isEmpty ? 'skipped' : 'unsupported';
+        report.totals[status] += 1;
+        report.documents.push({
+          documentKey: docPlan.documentKey,
+          title: displayName,
+          path: docPlan.targetMdPath,
+          sourceRelations: docPlan.sourceRelations,
+          status,
+          reason: isEmpty
+            ? '文档详情没有可导出的正文内容。'
+            : `当前来源导出入口尚未接入 ${exportRoute} 的专用导出流程。`,
+        });
+        continue;
+      }
+
+      const relativeDocUrl = new URL(docPlan.canonicalUrl).pathname.split('/').filter(Boolean).join('/');
+      const markdown = await fetchMarkdown(client, relativeDocUrl);
+      ensureDir(path.dirname(docPlan.targetMdPath));
+      ensureDir(path.join(docPlan.assetDir, 'images'));
+      ensureDir(path.join(docPlan.assetDir, 'files'));
+      const assetCache = new Map();
+      const issues = [];
+      const rewrittenMarkdown = await processMarkdown(markdown, {
+        docName: displayName,
+        targetMdPath: docPlan.targetMdPath,
+        exportRoot: contentOutputDir,
+        docLinkMap: new Map(),
+        options: {
+          downloadImages: config.downloadImages !== false,
+          downloadAttachments: config.downloadAttachments !== false,
+        },
+        async downloadAsset(assetUrl, kind) {
+          const cacheKey = `${kind}:${assetUrl}`;
+          if (assetCache.has(cacheKey)) return assetCache.get(cacheKey);
+          try {
+            const { response } = await downloadBinaryAsset(client, assetUrl, { kind });
+            const rawName = sanitizeFileName(inferAssetFileName(assetUrl, `${docPlan.documentId}-${kind}`));
+            const hash = crypto.createHash('sha256').update(assetUrl).digest('hex').slice(0, 12);
+            const folder = path.join(docPlan.assetDir, kind === 'image' ? 'images' : 'files');
+            const targetPath = path.join(folder, `${path.parse(rawName).name}-${hash}${path.extname(rawName)}`);
+            validateBinaryAssetResponse(response, { assetUrl, kind });
+            writeBinaryFileAtomically(targetPath, toBinaryBuffer(response.data));
+            assetCache.set(cacheKey, targetPath);
+            return targetPath;
+          } catch (error) {
+            const message = sanitizeDocumentSourceError(error);
+            issues.push(message);
+            failureLogger.append({
+              timestamp: new Date().toISOString(),
+              book_name: bookName,
+              doc_name: displayName,
+              yuque_path: docPlan.absoluteDocUrl,
+              target_md_path: docPlan.targetMdPath,
+              phase: 'rewrite-markdown',
+              error_type: 'AssetDownloadSkipped',
+              error_message: message,
+              retry_count: 0,
+            });
+            return null;
+          }
+        },
+      });
+
+      const artifactDocPlan = {
+        ...docPlan,
+        node: { name: displayName },
+      };
+      const artifactBookPlan = {
+        book: { id: String(docPlan.bookId || ''), name: bookName },
+        bookDir: path.dirname(docPlan.targetMdPath),
+        assets: {
+          root: docPlan.assetDir,
+          images: path.join(docPlan.assetDir, 'images'),
+          files: path.join(docPlan.assetDir, 'files'),
+          blocks: path.join(docPlan.assetDir, 'blocks'),
+          boards: path.join(docPlan.assetDir, 'boards'),
+          datatables: path.join(docPlan.assetDir, 'datatables'),
+          spreadsheets: path.join(docPlan.assetDir, 'spreadsheets'),
+        },
+      };
+      const preparedBoards = prepareStructuredBoards(detail, artifactDocPlan, artifactBookPlan, {
+        diagramExportMode: 'portable',
+        diagramSnapshotMode: 'disabled',
+        emitCanvasCompatibility: false,
+      });
+      const complexPlan = planComplexArtifactWork({
+        markdown,
+        rewrittenMarkdown,
+        complexBlockMode: config.complexBlockMode || 'auto',
+        preparedBoards,
+        docDetail: detail,
+      });
+      const limitations = [];
+      let artifacts = complexPlan.baseArtifacts;
+      if (complexPlan.needsWorker) {
+        const workerDocPlan = {
+          ...artifactDocPlan,
+          docSlug: docPlan.documentSlug,
+          docUrl: docPlan.canonicalUrl,
+        };
+        const workerTask = buildComplexArtifactWorkerTask({
+          bookPlan: artifactBookPlan,
+          docPlan: workerDocPlan,
+          requestedTasks: complexPlan.requestedTasks,
+          preparedBoards,
+          contentOutputDir,
+        });
+        artifacts = await withTimeout(
+          executeComplexArtifactPlan(complexPlan, {
+            runAttempt: async ({ attempt }) => await runArtifactWorker(
+              { ...config, contentOutputDir },
+              applyComplexArtifactRetryStrategy(workerTask, attempt),
+            ),
+          }),
+          ARTIFACT_TIMEOUT_MS,
+          `捕获所选文档复杂内容超时：${displayName}`,
+        );
+        if (artifacts.workerStatus === 'degraded') {
+          limitations.push('复杂内容读取未能完成；已保留可用正文和结构化结果，详情见失败报告。');
+        }
+        if (Number(artifacts.encryptedState?.remainingLockedCount || 0) > 0) {
+          limitations.push('文档仍有未解锁的加密内容；未尝试绕过密码或访问限制。');
+        }
+        if (Array.isArray(artifacts.datatables) && artifacts.datatables.some((table) => table?.partial)) {
+          limitations.push('部分嵌入式数据表仅能提取到不完整数据。');
+        }
+      }
+      if (preparedBoards.some((board) => !board.structuredExport && !board.markdown && !board.mermaid)) {
+        limitations.push('部分画板无法稳定结构化；已保留语雀原始数据，但未生成可读的画板正文。');
+      }
+      const finalMarkdownWithArtifacts = mergeMarkdownWithArtifacts(
+        rewrittenMarkdown,
+        artifacts,
+        docPlan.targetMdPath,
+        docPlan.absoluteDocUrl,
+      );
+      if (countGenericCardPlaceholders(finalMarkdownWithArtifacts) > 0) {
+        limitations.push('仍有复杂卡片未能替换为可读内容；已保留原文卡片链接供手动查看。');
+      }
+
+      const markdownWarnings = [
+        ...limitations.map((errorMessage) => ({ phase: '复杂块/资源', errorMessage })),
+        ...(issues.length > 0
+          ? [{ phase: '资源下载', errorMessage: `${issues.length} 个图片或附件未能本地化，详见失败日志。` }]
+          : []),
+      ];
+      const finalMarkdown = appendExportWarningsSection(finalMarkdownWithArtifacts, markdownWarnings);
+      const backupPath = writeTextFileAtomically(docPlan.targetMdPath, finalMarkdown);
+      const sourceVersion = String(detail.content_updated_at ?? docPlan.sourceVersion ?? '').trim();
+      const outputHash = crypto.createHash('sha256').update(finalMarkdown).digest('hex');
+      const status = issues.length > 0 || limitations.length > 0 ? 'incomplete' : 'exported';
+      if (status === 'incomplete') {
+        exportState.markIncomplete(
+          { ...docPlan, sourceVersion },
+          [...limitations, ...issues].join(' '),
+          { outputHash },
+        );
+      } else {
+        exportState.markExported({ ...docPlan, sourceVersion }, { outputHash });
+      }
+      report.totals[status === 'incomplete' ? 'incomplete' : 'exported'] += 1;
+      report.documents.push({
+        documentKey: docPlan.documentKey,
+        title: displayName,
+        path: docPlan.targetMdPath,
+        sourceRelations: docPlan.sourceRelations,
+        status,
+        sourceVersion: sourceVersion || null,
+        downloadedAssets: assetCache.size,
+        resourceWarnings: issues.length,
+        limitations,
+        backupPath: backupPath || undefined,
+      });
+    } catch (error) {
+      const message = sanitizeDocumentSourceError(error);
+      const failureKind = classifyDocumentSourceFailure(error);
+      const documentStatus = failureKind === 'restricted'
+        ? 'restricted'
+        : failureKind === 'unavailable'
+          ? 'unavailable'
+          : 'failed';
+      if (failureKind === 'authentication-required') report.totals.authenticationRequired += 1;
+      if (failureKind === 'restricted') report.totals.restricted += 1;
+      if (failureKind === 'unavailable') report.totals.unavailable += 1;
+      failureLogger.append({
+        timestamp: new Date().toISOString(),
+        book_name: bookName,
+        doc_name: displayName,
+        yuque_path: docPlan.absoluteDocUrl,
+        target_md_path: docPlan.targetMdPath,
+        phase: 'document-export',
+        error_type: error?.name || 'Error',
+        error_message: message,
+        retry_count: 0,
+      });
+      exportState.markFailed(docPlan, message);
+      report.totals.failed += 1;
+      report.documents.push({
+        documentKey: docPlan.documentKey,
+        title: displayName,
+        path: docPlan.targetMdPath,
+        sourceRelations: docPlan.sourceRelations,
+        status: documentStatus,
+        failureKind,
+        error: message,
+      });
+    }
+  }
+
+  report.finishedAt = new Date().toISOString();
+  report.status = report.totals.failed === 0
+    && report.totals.unsupported === 0
+    && report.totals.incomplete === 0
+    && report.totals.protected === 0
+    ? 'success'
+    : 'partial';
+  return finalizeDocumentSourcesExport(report, exportState, failureLogger, emit, report.status, sourceResult);
+}
+
+function finalizeDocumentSourcesExport(report, exportState, failureLogger, emit, status, sourceResult = {}) {
+  report.finishedAt = new Date().toISOString();
+  report.status = status;
+  exportState.saveMeta({
+    status,
+    lastRunFinishedAt: report.finishedAt,
+  });
+  report.statePath = exportState.filePath;
+  report.failureCsv = failureLogger.filePath;
+  report.failureRecordCount = failureLogger.recordCount;
+  report.reportPath = path.join(report.outputDir, 'document-sources-report.json');
+  writeJson(report.reportPath, report);
+  emit({
+    type: 'result',
+    status,
+    outputDir: report.outputDir,
+    contentOutputDir: report.contentOutputDir,
+    reportPath: report.reportPath,
+    statePath: report.statePath,
+    failureCsv: report.failureCsv,
+    failureRecordCount: report.failureRecordCount,
+    totals: report.totals,
+    // 桌面桥接会把 message 放入任务日志，让用户看到实际结果和落盘位置。
+    message: `来源导出${status === 'success' ? '完成' : status === 'partial' ? '处理完成，存在未完整项目' : status === 'paused' ? '已暂停' : '已停止'}：`
+      + `成功 ${report.totals.exported}，跳过 ${report.totals.skipped}，失败 ${report.totals.failed}，`
+      + `资源/内容不完整 ${report.totals.incomplete}，不支持 ${report.totals.unsupported}，本地修改保护 ${report.totals.protected}。`
+      + `\n实际文档目录: ${report.contentOutputDir}\n结果报告: ${report.reportPath}`,
+  });
+  return report;
+}
+
 export function buildExportBrowserLaunchOptions(config = {}, overrides = {}) {
   const cookiePath = String(config.cookiePath || '').trim();
   return {
@@ -290,7 +867,13 @@ export async function exportBooks(config, emit = () => {}) {
   const control = new ExportControl(config.jobControlPath);
   control.clear();
 
-  const exportPlan = buildExportPlan(books, contentOutputDir, createSelectionMatcher(config));
+  const assetDirectoryName = normalizeAssetDirectoryName(config.assetDirectoryName);
+  const exportPlan = buildExportPlan(
+    books,
+    contentOutputDir,
+    createSelectionMatcher(config),
+    assetDirectoryName,
+  );
   config.complexBlockMode = resolveComplexBlockMode(config);
   config.diagramExportMode = normalizeDiagramExportMode(config.diagramExportMode);
   config.diagramSnapshotMode = normalizeDiagramSnapshotMode(config.diagramSnapshotMode);
@@ -850,6 +1433,7 @@ export async function exportBooks(config, emit = () => {}) {
                   browserSession,
                   cookiePath: config.cookiePath,
                 }),
+              assetDirectoryName: normalizeAssetDirectoryName(config.assetDirectoryName),
               downloadAsset: (assetUrl, kind, repairOptions = {}) =>
                 downloadAsset(
                   client,
@@ -888,7 +1472,12 @@ export async function exportBooks(config, emit = () => {}) {
             for (const issue of repairedAssets.issues) {
               recordDocIssue(issue);
             }
-            recordMissingExportedAssetWarnings(finalMarkdown, docPlan.targetMdPath, recordDocIssue);
+            recordMissingExportedAssetWarnings(
+              finalMarkdown,
+              docPlan.targetMdPath,
+              recordDocIssue,
+              normalizeAssetDirectoryName(config.assetDirectoryName),
+            );
             const backupPath = writeTextFileAtomically(docPlan.targetMdPath, finalMarkdown);
             if (backupPath) {
               recordDocIssue({
@@ -1162,6 +1751,7 @@ export async function exportMarkDownFiles() {
     diagramExportMode: process.env.DIAGRAM_EXPORT_MODE || 'auto',
     diagramSnapshotMode: process.env.DIAGRAM_SNAPSHOT_MODE || 'fallback-only',
     assetLayout: 'book_assets',
+    assetDirectoryName: normalizeAssetDirectoryName(process.env.ASSET_DIRECTORY_NAME),
     jobControlPath: '',
   };
   return await exportBooks(config, (event) => {
@@ -1964,14 +2554,19 @@ function normalizeSelectedDocumentValue(value) {
   return String(value ?? '').trim().replace(/\/$/, '');
 }
 
-function buildExportPlan(books, outputDir, selectionMatcher = createSelectionMatcher()) {
+function buildExportPlan(
+  books,
+  outputDir,
+  selectionMatcher = createSelectionMatcher(),
+  assetDirectoryName = '_assets',
+) {
   const allocator = createAllocator();
   const plan = { books: [], documents: [] };
 
   for (const book of books) {
     const bookDir = path.join(outputDir, allocator.uniqueDir(outputDir, sanitizeFileName(book.name)));
     const assets = {
-      root: ensureDir(path.join(bookDir, '_assets')),
+      root: ensureDir(path.join(bookDir, assetDirectoryName)),
     };
     assets.images = ensureDir(path.join(assets.root, 'images'));
     assets.files = ensureDir(path.join(assets.root, 'files'));
@@ -2404,22 +2999,27 @@ function buildExternalAssetHeaders(assetUrl) {
 }
 
 export function validateBinaryAssetResponse(response, options = {}) {
-  if (String(options.kind || '').toLowerCase() !== 'image') {
-    return response;
-  }
-
+  const kind = String(options.kind || '').toLowerCase();
   const assetUrl = String(options.assetUrl || '').trim() || 'unknown asset';
   const buffer = toBinaryBuffer(response?.data);
   if (buffer.length > MAX_ASSET_BYTES) {
     throw new Error(`Downloaded asset exceeded the ${MAX_ASSET_BYTES} byte safety limit.`);
   }
   if (buffer.length === 0) {
-    throw new Error(`Downloaded image asset ${assetUrl} was empty.`);
+    throw new Error(`Downloaded ${kind || 'binary'} asset ${assetUrl} was empty.`);
   }
 
   const contentType = extractResponseHeaderValue(response, 'content-type').split(';')[0].trim().toLowerCase();
   if (looksLikeHtmlResponseBuffer(buffer)) {
-    throw new Error(`Received an HTML document instead of image bytes while downloading image asset ${assetUrl}.`);
+    const expectedBytes = kind === 'image' ? 'image bytes' : 'asset bytes';
+    throw new Error(`Received an HTML document instead of ${expectedBytes} while downloading ${kind || 'binary'} asset ${assetUrl}.`);
+  }
+
+  if (kind !== 'image') {
+    if (contentType === 'text/html' || contentType === 'application/xhtml+xml') {
+      throw new Error(`Received an HTML document instead of asset bytes while downloading ${kind || 'binary'} asset ${assetUrl}.`);
+    }
+    return response;
   }
 
   const detectedMimeType = detectImageMimeTypeFromBuffer(buffer);
@@ -7324,6 +7924,23 @@ function exportStandaloneSpreadsheetDocument(docDetail, docPlan, bookPlan) {
     fs.writeFileSync(sheetFiles.csvPath, buildWorksheetCsv(sheet), 'utf8');
     writeJson(sheetFiles.jsonPath, sheet);
     fs.writeFileSync(sheetFiles.htmlPath, buildWorksheetHtmlDocument(workbook.title, sheet), 'utf8');
+    sheetFiles.baseDir = ensureDir(path.join(spreadsheetDir, 'bases', baseName));
+    sheetFiles.basePath = path.join(sheetFiles.baseDir, 'dataset.base');
+    sheetFiles.recordsDir = ensureDir(path.join(sheetFiles.baseDir, 'records'));
+    const datasetId = `yuque-sheet-${sanitizeFileName(String(workbook.docId || 'document'))}-${sheet.index + 1}`;
+    const datasetRows = buildWorksheetBaseDataset(sheet);
+    fs.writeFileSync(
+      sheetFiles.basePath,
+      buildWorksheetBaseFile({ datasetId, worksheet: sheet }),
+      'utf8',
+    );
+    datasetRows.rows.forEach((row, rowIndex) => {
+      const frontmatter = { dataset: datasetId, ...row };
+      const recordPath = path.join(sheetFiles.recordsDir, `row-${String(rowIndex + 1).padStart(4, '0')}.md`);
+      fs.writeFileSync(recordPath, `${buildFrontmatter(frontmatter)}\n`, 'utf8');
+    });
+    sheetFiles.datasetId = datasetId;
+    sheetFiles.recordCount = datasetRows.rows.length;
     files.sheets.push(sheetFiles);
   }
 
@@ -7339,8 +7956,9 @@ function exportStandaloneSpreadsheetDocument(docDetail, docPlan, bookPlan) {
       usedRowCount: sheet.usedRowCount,
       usedColCount: sheet.usedColCount,
       mergeCellCount: sheet.mergeCellCount,
+      grid: sheet.grid,
+      rows: sheet.rows,
       files: files.sheets[index],
-      previewRows: getSpreadsheetPreviewRows(sheet, 6),
     })),
     files,
   };
@@ -7636,61 +8254,18 @@ function buildStandaloneTableMarkdown(docPlan, standaloneTable) {
 }
 
 function buildStandaloneSpreadsheetMarkdown(docPlan, standaloneSpreadsheet) {
-  const lines = [
-    `# ${standaloneSpreadsheet.title || docPlan.node.name}`,
-    '',
-    '> 当前语雀电子表格已按工作簿 / 工作表结构导出，可直接查看整份工作簿 HTML，也可逐个工作表查看 CSV / HTML / JSON。',
-    '',
-    `- 源地址: ${docPlan.absoluteDocUrl}`,
-    `- 文档类型: ${standaloneSpreadsheet.sheetFormat || 'lakesheet'}`,
-    `- 工作表数量: ${standaloneSpreadsheet.sheetCount || 0}`,
-  ];
-
-  if (standaloneSpreadsheet.version) {
-    lines.push(`- 工作簿版本: ${standaloneSpreadsheet.version}`);
-  }
-
-  lines.push(
-    '',
-    '## 导出文件',
-    '',
-    `- [工作簿总览 HTML](${relativeMarkdownPath(docPlan.targetMdPath, standaloneSpreadsheet.files.workbookHtmlPath)})`,
-    `- [工作簿结构 JSON](${relativeMarkdownPath(docPlan.targetMdPath, standaloneSpreadsheet.files.workbookJsonPath)})`,
-    `- [语雀原始数据 JSON](${relativeMarkdownPath(docPlan.targetMdPath, standaloneSpreadsheet.files.workbookSourceJsonPath)})`,
-    '',
-    '## 工作表',
-    '',
-  );
+  const lines = [`# ${standaloneSpreadsheet.title || docPlan.node.name}`, ''];
 
   for (const sheet of standaloneSpreadsheet.sheets || []) {
     lines.push(`### ${sheet.name || `Sheet ${(sheet.index ?? 0) + 1}`}`);
     lines.push('');
-    lines.push(`- 有效区域: ${sheet.usedRowCount} 行 × ${sheet.usedColCount} 列`);
-    lines.push(`- 合并单元格: ${sheet.mergeCellCount || 0}`);
-    lines.push(`- [CSV](${relativeMarkdownPath(docPlan.targetMdPath, sheet.files.csvPath)})`);
-    lines.push(`- [HTML](${relativeMarkdownPath(docPlan.targetMdPath, sheet.files.htmlPath)})`);
-    lines.push(`- [JSON](${relativeMarkdownPath(docPlan.targetMdPath, sheet.files.jsonPath)})`);
-
-    if (Array.isArray(sheet.previewRows) && sheet.previewRows.length > 0) {
-      lines.push('', '```text');
-      for (const row of sheet.previewRows) {
-        lines.push(row.join(' | '));
-      }
-      lines.push('```');
+    if (sheet.files?.basePath) {
+      const baseLink = toPosixPath(path.relative(path.dirname(docPlan.targetMdPath), sheet.files.basePath));
+      lines.push(`![[${baseLink}]]`, '');
     }
-
-    lines.push('');
   }
 
   return `${lines.join('\n').trimEnd()}\n`;
-}
-
-function getSpreadsheetPreviewRows(sheet, limit = 6) {
-  const grid = Array.isArray(sheet?.grid) ? sheet.grid : [];
-  return grid
-    .filter((row) => row.some((cell) => String(cell ?? '').trim() !== ''))
-    .slice(0, limit)
-    .map((row) => row.map((cell) => String(cell ?? '').trim()));
 }
 
 function buildBoardDocumentMarkdown(docPlan, docDetail = {}) {
@@ -10891,7 +11466,7 @@ function recordDatatableExportWarnings(datatables, recordDocIssue) {
   }
 }
 
-export function findMissingExportedAssetReferences(markdown, targetMdPath) {
+export function findMissingExportedAssetReferences(markdown, targetMdPath, assetDirectoryName = '_assets') {
   const text = String(markdown ?? '');
   if (!text.trim()) {
     return [];
@@ -10909,7 +11484,7 @@ export function findMissingExportedAssetReferences(markdown, targetMdPath) {
     for (const match of text.matchAll(regex)) {
       const rawUrl = String(match[kind === 'image' ? 2 : 1] ?? '').trim();
       const assetAlt = kind === 'image' ? String(match[1] ?? '').trim() : '';
-      if (!isExportedLocalAssetReference(rawUrl, kind)) {
+      if (!isExportedLocalAssetReference(rawUrl, kind, assetDirectoryName)) {
         if (kind === 'image') {
           occurrence += 1;
         }
@@ -10965,7 +11540,11 @@ export async function repairMarkdownAssetReferences(markdown, context = {}) {
   }
 
   const targetMdPath = String(context.targetMdPath || '').trim();
-  const findings = findMissingExportedAssetReferences(source, targetMdPath);
+  const findings = findMissingExportedAssetReferences(
+    source,
+    targetMdPath,
+    context.assetDirectoryName || '_assets',
+  );
   if (findings.length === 0) {
     return { markdown: source, issues: [] };
   }
@@ -11005,12 +11584,12 @@ export async function repairMarkdownAssetReferences(markdown, context = {}) {
   };
 }
 
-function recordMissingExportedAssetWarnings(markdown, targetMdPath, recordDocIssue) {
+function recordMissingExportedAssetWarnings(markdown, targetMdPath, recordDocIssue, assetDirectoryName = '_assets') {
   if (!recordDocIssue) {
     return;
   }
 
-  for (const finding of findMissingExportedAssetReferences(markdown, targetMdPath)) {
+  for (const finding of findMissingExportedAssetReferences(markdown, targetMdPath, assetDirectoryName)) {
     recordDocIssue({
       phase: 'write-markdown',
       error_type: 'MissingExportedAsset',
@@ -11019,7 +11598,7 @@ function recordMissingExportedAssetWarnings(markdown, targetMdPath, recordDocIss
   }
 }
 
-function isExportedLocalAssetReference(rawUrl, kind) {
+function isExportedLocalAssetReference(rawUrl, kind, assetDirectoryName = '_assets') {
   if (!rawUrl || /^(?:[a-z]+:)?\/\//i.test(rawUrl) || rawUrl.startsWith('#') || rawUrl.startsWith('mailto:')) {
     return false;
   }
@@ -11027,7 +11606,13 @@ function isExportedLocalAssetReference(rawUrl, kind) {
   const withoutFragment = rawUrl.split('#')[0];
   const withoutQuery = withoutFragment.split('?')[0];
   const normalized = withoutQuery.replace(/\\/g, '/');
-  if (!normalized.includes('/_assets/') && !normalized.startsWith('_assets/') && !normalized.startsWith('../_assets/')) {
+  const safeAssetDirectoryName = normalizeAssetDirectoryName(assetDirectoryName);
+  const assetPathSegment = `/${safeAssetDirectoryName}/`;
+  if (
+    !normalized.includes(assetPathSegment)
+    && !normalized.startsWith(`${safeAssetDirectoryName}/`)
+    && !normalized.startsWith(`../${safeAssetDirectoryName}/`)
+  ) {
     return false;
   }
 

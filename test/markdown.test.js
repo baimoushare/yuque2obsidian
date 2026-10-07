@@ -380,6 +380,35 @@ test('normalizeYuqueMarkdownStructure normalizes spaced bold markers', () => {
   );
 });
 
+test('移除黑灰白文字颜色、保留彩色，并修复标题下的语雀列表缩进', () => {
+  const markdown = [
+    '### 行业选择',
+    '',
+    '    - **<font style="color:rgba(0, 0, 0, 0.87);">游戏行业</font>**：说明文字',
+    '    - <span style="color: #808080; font-weight: bold">优先方向</span>：<font style="color:#601BDE;">彩色保留</font>',
+  ].join('\n');
+
+  const normalized = normalizeYuqueMarkdownStructure(markdown);
+
+  assert.match(normalized, /^- \*\*游戏行业\*\*：说明文字$/mu);
+  assert.match(normalized, /^- <span style="font-weight: bold">优先方向<\/span>：<font style="color:#601BDE;">彩色保留<\/font>$/mu);
+  assert.doesNotMatch(normalized, /rgba?\(|#808080/u);
+});
+
+test('颜色与列表修复不改动代码围栏内容', () => {
+  const markdown = [
+    '### 示例',
+    '    - 代码说明',
+    '    ```html',
+    '    <font style="color: #000000">literal</font>',
+    '    ```',
+  ].join('\n');
+
+  const normalized = normalizeYuqueMarkdownStructure(markdown);
+
+  assert.match(normalized, /^```html\n<font style="color: #000000">literal<\/font>\n```$/mu);
+});
+
 test('normalizeYuqueMarkdownStructure keeps spaced bold markers inside code fences unchanged', () => {
   const markdown = ['```cpp', 'auto text = "** MeshData **";', '```', '', '** \u95ee\u9898 **'].join('\n');
 

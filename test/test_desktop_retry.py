@@ -1,8 +1,9 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from desktop_retry import build_retry_export_plan, extract_failed_document_urls
+from desktop_retry import build_retry_export_plan, build_source_retry_plan, extract_failed_document_urls
 
 
 class DesktopRetryTests(unittest.TestCase):
@@ -73,6 +74,55 @@ class DesktopRetryTests(unittest.TestCase):
                 plan["unmatchedDocuments"],
                 ["https://www.yuque.com/baimoushare/missing/doc-x"],
             )
+
+    def test_build_source_retry_plan_resolves_failed_document_keys_without_book_lookup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "export-failures-latest.csv"
+            csv_path.write_text(
+                "\ufeff记录时间,知识库名称,笔记名称,语雀路径\n"
+                "2026-10-05T13:46:03.990Z,Book,Doc,https://www.yuque.com/owner/book/doc-slug\n",
+                encoding="utf-8",
+            )
+            state = {
+                "documents": {
+                    "yuque:book-1:doc-1": {
+                        "documentKey": "yuque:book-1:doc-1",
+                        "yuquePath": "https://www.yuque.com/owner/book/doc-slug",
+                        "bookId": "book-1",
+                        "bookName": "Book",
+                        "docName": "Doc",
+                        "sourceVersion": "v1",
+                        "sourceRelations": [{"sourceType": "collaboration", "actionOption": "collaboration_Doc_doc"}],
+                        "status": "incomplete",
+                    },
+                },
+            }
+            (root / ".yuque-export-state.json").write_text(json.dumps(state), encoding="utf-8")
+
+            plan = build_source_retry_plan(csv_path)
+
+            self.assertEqual(plan["selectedDocumentKeys"], ["yuque:book-1:doc-1"])
+            self.assertEqual(plan["retrySourceDocuments"][0]["documentSlug"], "doc-slug")
+            self.assertEqual(plan["retrySourceDocuments"][0]["sourceType"], "collaboration")
+            self.assertEqual(plan["documentCount"], 1)
+
+    def test_build_source_retry_plan_declines_mixed_or_unmatched_failure_sets(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "export-failures-latest.csv"
+            csv_path.write_text(
+                "\ufeff记录时间,知识库名称,笔记名称,语雀路径\n"
+                "2026-10-05T13:46:03.990Z,Book,Doc,https://www.yuque.com/owner/book/doc-slug\n"
+                "2026-10-05T13:46:04.990Z,Book,Other,https://www.yuque.com/owner/book/other\n",
+                encoding="utf-8",
+            )
+            (root / ".yuque-export-state.json").write_text(
+                json.dumps({"documents": {}}),
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(build_source_retry_plan(csv_path))
 
 
 if __name__ == "__main__":

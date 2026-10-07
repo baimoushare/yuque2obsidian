@@ -4,6 +4,22 @@ import path from 'path';
 const INVALID_FILENAME_RE = /[<>:"/\\|?*\u0000-\u001f]/g;
 const RESERVED_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
+export function normalizeAssetDirectoryName(input) {
+  const value = String(input ?? '').trim();
+  if (
+    !value
+    || value === '.'
+    || value === '..'
+    || value.length > 80
+    || /[<>:"/\\|?*\u0000-\u001f]/.test(value)
+    || /[. ]$/.test(value)
+    || RESERVED_RE.test(value)
+  ) {
+    return '_assets';
+  }
+  return value;
+}
+
 export function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
   return dirPath;

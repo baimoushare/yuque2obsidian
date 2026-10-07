@@ -19,6 +19,8 @@ export class FailureCsvLogger {
     ensureDir(outputDir);
     this.filePath = buildFailureCsvFilePath(outputDir);
     this.latestPath = '';
+    // 文件创建时只有表头，不能把文件存在误当成本次发生了失败。
+    this.recordCount = 0;
     const header = `${FAILURE_COLUMNS.map((column) => escapeCsv(column.label)).join(',')}\n`;
     fs.writeFileSync(this.filePath, `\ufeff${header}`, 'utf8');
   }
@@ -27,6 +29,7 @@ export class FailureCsvLogger {
     const localized = localizeFailureRecord(record);
     const line = FAILURE_COLUMNS.map((column) => escapeCsv(localized[column.key] ?? '')).join(',') + '\n';
     fs.appendFileSync(this.filePath, line, 'utf8');
+    this.recordCount += 1;
   }
 }
 

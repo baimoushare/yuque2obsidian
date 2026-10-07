@@ -995,6 +995,15 @@ test('findMissingExportedAssetReferences reports missing local exported asset fi
   assert.match(findings[0].resolvedPath, /missing\.png$/);
 });
 
+test('findMissingExportedAssetReferences checks the configured asset directory name', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuque-custom-assets-'));
+  const targetMdPath = path.join(root, 'Demo.md');
+  const markdown = '![missing](media/images/missing.png)';
+  const findings = findMissingExportedAssetReferences(markdown, targetMdPath, 'media');
+  assert.equal(findings.length, 1);
+  assert.match(findings[0].resolvedPath, /media[\\/]images[\\/]missing\.png$/);
+});
+
 test('appendExportWarningsSection adds a visible warning block for partial export issues', () => {
   const markdown = '# Demo\n\nbody';
   const output = appendExportWarningsSection(markdown, [

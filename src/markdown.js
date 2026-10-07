@@ -2,6 +2,31 @@ import path from 'path';
 import { relativeMarkdownPath, toPosixPath } from './utils.js';
 
 const STRONG_RE = /\*\*(.+?)\*\*/g;
+const NEUTRAL_COLOR_VALUES = new Set([
+  'black',
+  'silver',
+  'darkgray',
+  'darkgrey',
+  'gainsboro',
+  'gray',
+  'grey',
+  'lightgray',
+  'lightgrey',
+  'dimgray',
+  'dimgrey',
+  'darkslategray',
+  'darkslategrey',
+  'slategray',
+  'slategrey',
+  'whitesmoke',
+  'white',
+  '#000',
+  '#000000',
+  '#fff',
+  '#ffffff',
+  'rgb(0,0,0)',
+  'rgb(255,255,255)',
+]);
 const WEB_DOCUMENT_EXTENSIONS = new Set(['html', 'htm', 'shtml', 'xhtml']);
 const ATTACHMENT_EXTENSIONS = new Set([
   '7z',
@@ -109,9 +134,148 @@ export function normalizeYuqueMarkdownStructure(markdown) {
   output = splitSectionAndFirstItem(output);
   output = splitCollapsedListItems(output);
   output = dropEmptyBulletFragments(output);
+  output = dedentYuqueListsAfterHeadings(output);
+  output = normalizeYuqueFontColors(output);
   output = normalizeSpacedStrongEmphasis(output);
   output = normalizeQuotedLiteralAsterisks(output);
   return output;
+}
+
+function dedentYuqueListsAfterHeadings(markdown) {
+  const lines = String(markdown ?? '').split('\n');
+  const output = [];
+  let inIndentedList = false;
+  let headingSeen = false;
+  let inFence = '';
+
+  for (const line of lines) {
+    const candidate = inIndentedList && line.startsWith('    ') ? line.slice(4) : line;
+    const fenceMatch = candidate.match(FENCED_BLOCK_RE);
+    if (inFence) {
+      output.push(candidate);
+      if (fenceMatch && startsFence(candidate, inFence)) inFence = '';
+      continue;
+    }
+
+    if (fenceMatch) {
+      inFence = fenceMatch[1];
+      output.push(candidate);
+      continue;
+    }
+
+    if (/^#{1,6}\s/u.test(line)) {
+      headingSeen = true;
+      inIndentedList = false;
+      output.push(line);
+      continue;
+    }
+
+    if (/^ {4}[-*+]\s/u.test(line) && (headingSeen || inIndentedList)) {
+      inIndentedList = true;
+      headingSeen = false;
+      output.push(line.slice(4));
+      continue;
+    }
+
+    if (!line.trim()) {
+      output.push(line);
+      continue;
+    }
+
+    if (inIndentedList && line.startsWith('    ')) {
+      output.push(candidate);
+      continue;
+    }
+
+    inIndentedList = false;
+    headingSeen = false;
+    output.push(line);
+  }
+
+  return output.join('\n');
+}
+
+function normalizeYuqueFontColors(markdown) {
+  const lines = String(markdown ?? '').split('\n');
+  const output = [];
+  let fenceMarker = '';
+
+  for (const line of lines) {
+    const fenceMatch = line.match(FENCED_BLOCK_RE);
+    if (fenceMarker) {
+      output.push(line);
+      if (fenceMatch && startsFence(line, fenceMarker)) fenceMarker = '';
+      continue;
+    }
+    if (fenceMatch) {
+      fenceMarker = fenceMatch[1];
+      output.push(line);
+      continue;
+    }
+
+    const withoutNeutralFontColor = line.replace(
+      /<font\b([^>]*)>([\s\S]*?)<\/font\s*>/giu,
+      (match, attributes, content) => {
+        const color = readHtmlColor(attributes);
+        return color && isNeutralYuqueColor(color) ? content : match;
+      },
+    );
+    output.push(withoutNeutralHtmlColors(withoutNeutralFontColor));
+  }
+
+  return output.join('\n');
+}
+
+function withoutNeutralHtmlColors(line) {
+  return line.replace(/<([a-z][\w:-]*)\b([^<>]*?)>/giu, (tag, name, rawAttributes) => {
+    let attributes = rawAttributes;
+    const colorAttribute = attributes.match(/\s+color\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu);
+    const explicitColor = colorAttribute?.[1] ?? colorAttribute?.[2] ?? colorAttribute?.[3];
+    if (explicitColor && isNeutralYuqueColor(explicitColor)) {
+      attributes = attributes.replace(colorAttribute[0], '');
+    }
+
+    const styleAttribute = attributes.match(/\s+style\s*=\s*(["'])(.*?)\1/iu);
+    if (styleAttribute) {
+      const declarations = styleAttribute[2].split(';');
+      const cleanedStyle = declarations
+        .filter((declaration) => {
+          const match = declaration.match(/^\s*color\s*:\s*(.*?)\s*$/iu);
+          return !match || !isNeutralYuqueColor(match[1]);
+        });
+      if (cleanedStyle.length !== declarations.length) {
+        const normalizedStyle = cleanedStyle.join(';').trim().replace(/;{2,}/g, ';').replace(/^;|;$/g, '');
+        attributes = normalizedStyle
+          ? attributes.replace(styleAttribute[0], ` style=${styleAttribute[1]}${normalizedStyle}${styleAttribute[1]}`)
+          : attributes.replace(styleAttribute[0], '');
+      }
+    }
+    return `<${name}${attributes}>`;
+  });
+}
+
+function readHtmlColor(attributes) {
+  const style = String(attributes || '').match(/\bstyle\s*=\s*(["'])(.*?)\1/iu)?.[2] || '';
+  const styleColor = style.match(/(?:^|;)\s*color\s*:\s*([^;]+)/iu)?.[1]?.trim();
+  if (styleColor) return styleColor;
+  const colorAttribute = String(attributes || '').match(/\bcolor\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu);
+  return colorAttribute?.[1] ?? colorAttribute?.[2] ?? colorAttribute?.[3] ?? '';
+}
+
+function isNeutralYuqueColor(value) {
+  const normalized = String(value ?? '').replace(/\s+/gu, '').toLowerCase();
+  if (NEUTRAL_COLOR_VALUES.has(normalized)) return true;
+  const hex = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/u)?.[1];
+  if (hex) {
+    const channels = hex.length === 3
+      ? [...hex].map((channel) => Number.parseInt(channel.repeat(2), 16))
+      : [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
+    return channels[0] === channels[1] && channels[1] === channels[2];
+  }
+  const rgba = normalized.match(/^rgba?\((\d+),(\d+),(\d+)(?:,([\d.]+))?\)$/u);
+  if (!rgba) return false;
+  const [, red, green, blue] = rgba.map(Number);
+  return red === green && green === blue;
 }
 
 export function normalizeYuqueCalloutBlocks(markdown) {

@@ -89,6 +89,7 @@ class DesktopUpdateTests(unittest.TestCase):
                 state = service.check(force=True)
 
         self.assertEqual(state["status"], "available")
+        self.assertEqual(state["currentVersion"], "0.8.0")
         self.assertEqual(state["availableUpdate"]["version"], "0.8.1")
 
     def test_health_marker_rejects_a_version_different_from_the_running_exe(self):

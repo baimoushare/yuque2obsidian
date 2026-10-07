@@ -13,6 +13,11 @@ class DesktopDiagramSettingsTests(unittest.TestCase):
 
         self.assertEqual(settings["diagramExportMode"], "auto")
         self.assertEqual(settings["diagramSnapshotMode"], "fallback-only")
+        self.assertEqual(settings["outputDir"], str(Path.home() / "Downloads"))
+        self.assertEqual(settings["obsidianSetupMode"], "bases+community")
+        self.assertEqual(settings["vaultExportLayout"], "direct-to-vault")
+        self.assertEqual(settings["vaultExportSubdir"], "语雀导出")
+        self.assertEqual(settings["reencryptEncryptedBlocksMode"], "global")
 
     def test_invalid_diagram_settings_are_normalized_without_touching_other_values(self):
         settings = DesktopApi()._normalize_settings(
@@ -34,6 +39,15 @@ class DesktopDiagramSettingsTests(unittest.TestCase):
 
         self.assertEqual(settings["diagramExportMode"], "obsidian-editable")
         self.assertEqual(settings["diagramSnapshotMode"], "supplemental")
+
+    def test_asset_directory_name_is_saved_only_as_a_safe_single_path_segment(self):
+        settings = DesktopApi()._normalize_settings({"assetDirectoryName": "media files"})
+        self.assertEqual(settings["assetDirectoryName"], "media files")
+
+        for invalid in ("", ".", "..", "../outside", "folder/name", "folder\\name", "CON"):
+            with self.subTest(invalid=invalid):
+                normalized = DesktopApi()._normalize_settings({"assetDirectoryName": invalid})
+                self.assertEqual(normalized["assetDirectoryName"], "_assets")
 
     def test_load_settings_accepts_utf8_bom(self):
         """历史桌面配置带 BOM 时仍应能加载默认图形导出模式。"""

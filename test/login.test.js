@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeBrowserCookies, YUQUE_ROOT_URL } from '../src/login.js';
+import {
+  normalizeBrowserCookies,
+  normalizeStoredCookiesForPuppeteer,
+  YUQUE_ROOT_URL,
+} from '../src/login.js';
 
 test('normalizeBrowserCookies preserves explicit cookie fields', () => {
   const cookies = normalizeBrowserCookies([
@@ -48,4 +52,44 @@ test('normalizeBrowserCookies uses default url for host-only cookies', () => {
       httpOnly: false,
     },
   ]);
+});
+
+test('normalizeStoredCookiesForPuppeteer upgrades legacy partition-key shape', () => {
+  const cookie = {
+    name: 'partitioned',
+    value: 'secret',
+    partitionKey: {
+      topLevelSite: 'https://www.yuque.com',
+      hasCrossSiteAncestor: true,
+    },
+  };
+
+  const [normalized] = normalizeStoredCookiesForPuppeteer([cookie]);
+
+  assert.deepEqual(normalized.partitionKey, {
+    sourceOrigin: 'https://www.yuque.com',
+    hasCrossSiteAncestor: true,
+  });
+  assert.equal(cookie.partitionKey.topLevelSite, 'https://www.yuque.com');
+});
+
+test('normalizeStoredCookiesForPuppeteer preserves current and string partition keys', () => {
+  const currentCookie = {
+    name: 'current',
+    value: 'secret',
+    partitionKey: {
+      sourceOrigin: 'https://www.yuque.com',
+      hasCrossSiteAncestor: false,
+    },
+  };
+  const stringCookie = {
+    name: 'string',
+    value: 'secret',
+    partitionKey: 'https://www.yuque.com',
+  };
+
+  const normalized = normalizeStoredCookiesForPuppeteer([currentCookie, stringCookie]);
+
+  assert.equal(normalized[0], currentCookie);
+  assert.equal(normalized[1], stringCookie);
 });

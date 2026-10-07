@@ -31,3 +31,23 @@ test('parseCliConfig normalizes re-encryption settings from modern configs', () 
   assert.equal(config.reencryptGlobalPassword, 'vault-secret');
   assert.deepEqual(config.encryptedBlockPasswords, ['legacy-first']);
 });
+
+test('parseCliConfig preserves explicit document-source selections without defaulting to all', () => {
+  const config = parseCliConfig(JSON.stringify({
+    selectedDocumentKeys: ['yuque:book-1:doc-1'],
+  }));
+
+  assert.deepEqual(config.selectedDocumentKeys, ['yuque:book-1:doc-1']);
+  assert.deepEqual(parseCliConfig(JSON.stringify({})).selectedDocumentKeys, []);
+});
+
+test('parseCliConfig preserves a safe custom asset directory and rejects path traversal', () => {
+  assert.equal(
+    parseCliConfig(JSON.stringify({ assetDirectoryName: 'media files' })).assetDirectoryName,
+    'media files',
+  );
+  assert.equal(
+    parseCliConfig(JSON.stringify({ assetDirectoryName: '../outside' })).assetDirectoryName,
+    '_assets',
+  );
+});

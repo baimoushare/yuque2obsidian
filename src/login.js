@@ -60,8 +60,34 @@ export function saveCookies(cookiePath, cookies) {
   }
 }
 
+export function normalizeStoredCookiesForPuppeteer(cookies) {
+  if (!Array.isArray(cookies)) return [];
+
+  return cookies.map((cookie) => {
+    const partitionKey = cookie?.partitionKey;
+    if (
+      !partitionKey
+      || typeof partitionKey !== 'object'
+      || typeof partitionKey.sourceOrigin === 'string'
+      || typeof partitionKey.topLevelSite !== 'string'
+    ) {
+      return cookie;
+    }
+
+    // 旧版 Puppeteer/Chromium 保存 topLevelSite；新版 Puppeteer 读入对象时要求 sourceOrigin。
+    // 只转换字段名并保留分区信息，避免 setCookie 因 topLevelSite 缺失而报协议错误。
+    return {
+      ...cookie,
+      partitionKey: {
+        sourceOrigin: partitionKey.topLevelSite,
+        hasCrossSiteAncestor: partitionKey.hasCrossSiteAncestor ?? false,
+      },
+    };
+  });
+}
+
 export async function applyCookies(page, cookiePath) {
-  const cookies = loadCookies(cookiePath);
+  const cookies = normalizeStoredCookiesForPuppeteer(loadCookies(cookiePath));
   if (cookies.length > 0) {
     await page.setCookie(...cookies);
   }
@@ -182,7 +208,7 @@ export function openUrlInDefaultBrowser(url) {
 }
 
 export async function autoLogin(page, cookiePath = './cookies.json') {
-  const cookies = loadCookies(cookiePath);
+  const cookies = normalizeStoredCookiesForPuppeteer(loadCookies(cookiePath));
 
   if (cookies.length > 0) {
     await page.setCookie(...cookies);

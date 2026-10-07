@@ -1,6 +1,10 @@
 ﻿const state = {
   settings: null,
   books: [],
+  documentSources: [],
+  documentSourcesScanned: false,
+  documentSourcesExcludedCount: 0,
+  selectedDocumentKeys: new Set(),
   selectedBooks: new Set(),
   selectedDocuments: new Set(),
   expandedNodes: new Set(),
@@ -10,7 +14,6 @@
   currentJobKind: '',
   pollTimer: null,
   loginUser: null,
-  loginWasAlreadyAuthenticated: false,
   lastExportConfig: null,
   currentExportSource: '',
   lastSelectedBookId: null,
@@ -44,6 +47,7 @@ const elements = {
   obsidianVaultPath: $('#obsidian-vault-path'),
   obsidianSetupMode: $('#obsidian-setup-mode'),
   diagramExportMode: $('#diagram-export-mode'),
+  assetDirectoryName: $('#asset-directory-name'),
   vaultExportLayout: $('#vault-export-layout'),
   vaultExportSubdir: $('#vault-export-subdir'),
   encryptedPasswords: $('#encrypted-passwords'),
@@ -56,7 +60,10 @@ const elements = {
   downloadAttachments: $('#download-attachments'),
   incrementalExport: $('#incremental-export'),
   booksList: $('#books-list'),
+  favoriteDocumentRows: $('#favorite-document-rows'),
+  collaborationDocumentRows: $('#collaboration-document-rows'),
   bookCount: $('#book-count'),
+  progressMeta: $('#progress-meta'),
   progressBar: $('#progress-bar'),
   progressText: $('#progress-text'),
   progressStats: $('#progress-stats'),
@@ -153,6 +160,7 @@ async function init() {
   const settings = await window.pywebview.api.loadSettings();
   state.settings = settings;
   fillSettings(settings);
+  initializeHintTooltips();
   wireEvents();
   setupTransientShellScrollbar();
   await refreshLoginStatus();
@@ -169,6 +177,7 @@ async function init() {
 }
 
 function wireEvents() {
+  initializeCustomSelects();
   elements.saveSettingsBtn.addEventListener('click', saveSettings);
   elements.chooseOutputBtn.addEventListener('click', chooseOutputDir);
   elements.chooseFailureCsvBtn.addEventListener('click', chooseFailureCsv);
@@ -177,6 +186,14 @@ function wireEvents() {
   elements.loginBtn.addEventListener('click', startLogin);
   elements.scanBtn.addEventListener('click', scanBooks);
   elements.exportBtn.addEventListener('click', onExportButtonClick);
+  document.querySelectorAll('[data-category-toggle]').forEach((toggle) => {
+    toggle.addEventListener('click', () => toggleCategory(toggle.dataset.categoryToggle));
+  });
+  document.querySelectorAll('[data-category-select]').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      toggleCategorySelection(checkbox.dataset.categorySelect, checkbox.checked);
+    });
+  });
   elements.stopBtn.addEventListener('click', stopExport);
   elements.treeFoldToggleBtn.addEventListener('click', toggleTreeFoldState);
   elements.togglePasswordsBtn.addEventListener('click', togglePasswordVisibility);
@@ -203,18 +220,265 @@ function wireEvents() {
   });
 }
 
+function initializeHintTooltips() {
+  const hints = [...document.querySelectorAll('.hint-badge')];
+  let activeTooltip = null;
+  let activeBadge = null;
+
+  const positionTooltip = () => {
+    if (!activeTooltip || !activeBadge) return;
+
+    const rect = activeBadge.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 10;
+    const tooltipWidth = activeTooltip.getBoundingClientRect().width;
+    const tooltipHeight = activeTooltip.getBoundingClientRect().height;
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left + rect.width / 2 - tooltipWidth / 2),
+      Math.max(viewportPadding, window.innerWidth - tooltipWidth - viewportPadding),
+    );
+    const top = rect.top >= tooltipHeight + gap + viewportPadding
+      ? rect.top - tooltipHeight - gap
+      : rect.bottom + gap;
+
+    activeTooltip.dataset.placement = top < rect.top ? 'top' : 'bottom';
+    activeTooltip.style.left = `${left}px`;
+    activeTooltip.style.top = `${Math.min(top, window.innerHeight - tooltipHeight - viewportPadding)}px`;
+    activeTooltip.style.setProperty(
+      '--tooltip-arrow-left',
+      `${Math.min(Math.max(rect.left + rect.width / 2 - left, 12), tooltipWidth - 12)}px`,
+    );
+  };
+
+  const hideTooltip = () => {
+    activeTooltip?.classList.remove('is-visible');
+    activeTooltip = null;
+    activeBadge = null;
+  };
+
+  for (const badge of hints) {
+    const tooltip = badge.querySelector('.hint-tooltip');
+    if (!tooltip) continue;
+
+    if (!tooltip.id) {
+      tooltip.id = `${badge.getAttribute('aria-label') || 'field-hint'}-tooltip`
+        .replace(/[^a-zA-Z0-9_-]/gu, '-');
+    }
+    badge.setAttribute('aria-describedby', tooltip.id);
+    tooltip.classList.add('hint-tooltip-portal');
+    document.body.appendChild(tooltip);
+
+    const showTooltip = () => {
+      if (activeTooltip && activeTooltip !== tooltip) {
+        activeTooltip.classList.remove('is-visible');
+      }
+      activeTooltip = tooltip;
+      activeBadge = badge;
+      positionTooltip();
+      tooltip.classList.add('is-visible');
+    };
+
+    badge.addEventListener('mouseenter', showTooltip);
+    badge.addEventListener('focus', showTooltip);
+    badge.addEventListener('mouseleave', hideTooltip);
+    badge.addEventListener('blur', hideTooltip);
+  }
+
+  window.addEventListener('resize', positionTooltip);
+  window.addEventListener('scroll', positionTooltip, true);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hideTooltip();
+  });
+}
+
+function initializeCustomSelects() {
+  const selects = [...document.querySelectorAll('.select-shell select')];
+  let openSelect = null;
+
+  const closeOpenSelect = () => {
+    openSelect?.close();
+    openSelect = null;
+  };
+
+  for (const select of selects) {
+    const shell = select.closest('.select-shell');
+    const trigger = document.createElement('button');
+    const value = document.createElement('span');
+    const menu = document.createElement('div');
+    const listboxId = `${select.id}-options`;
+    const options = [...select.options];
+    let activeIndex = Math.max(0, select.selectedIndex);
+
+    trigger.type = 'button';
+    trigger.className = 'app-select-trigger';
+    trigger.setAttribute('role', 'combobox');
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', listboxId);
+    trigger.setAttribute('aria-label', select.getAttribute('aria-label') || select.id);
+    value.className = 'app-select-value';
+    trigger.appendChild(value);
+
+    menu.id = listboxId;
+    menu.className = 'app-select-menu';
+    menu.setAttribute('role', 'listbox');
+    menu.setAttribute('aria-label', trigger.getAttribute('aria-label'));
+    menu.hidden = true;
+
+    options.forEach((option, index) => {
+      const item = document.createElement('button');
+      const label = document.createElement('span');
+      const checkmark = document.createElement('span');
+
+      item.type = 'button';
+      item.className = 'app-select-option';
+      item.setAttribute('role', 'option');
+      item.dataset.optionIndex = String(index);
+      label.textContent = option.textContent.trim();
+      checkmark.className = 'app-select-option-check';
+      checkmark.setAttribute('aria-hidden', 'true');
+      checkmark.textContent = '✓';
+      item.append(label, checkmark);
+      item.addEventListener('click', () => {
+        if (select.disabled || option.disabled) return;
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        closeOpenSelect();
+        trigger.focus();
+      });
+      menu.appendChild(item);
+    });
+
+    const syncSelection = () => {
+      activeIndex = Math.max(0, select.selectedIndex);
+      value.textContent = options[activeIndex]?.textContent.trim() || '';
+      menu.querySelectorAll('[role="option"]').forEach((item, index) => {
+        item.setAttribute('aria-selected', String(index === activeIndex));
+      });
+      trigger.disabled = select.disabled;
+      shell.classList.toggle('is-disabled', select.disabled);
+    };
+
+    const positionMenu = () => {
+      const rect = trigger.getBoundingClientRect();
+      const gap = 6;
+      const viewportPadding = 8;
+      const menuWidth = Math.min(rect.width, Math.max(0, window.innerWidth - viewportPadding * 2));
+      const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
+      const availableBelow = window.innerHeight - rect.bottom - gap - viewportPadding;
+      const availableAbove = rect.top - gap - viewportPadding;
+      const estimatedHeight = Math.min(menu.scrollHeight, 260);
+      const openAbove = availableBelow < estimatedHeight && availableAbove > availableBelow;
+      const maxHeight = Math.max(80, Math.min(260, openAbove ? availableAbove : availableBelow));
+
+      menu.style.left = `${Math.min(Math.max(viewportPadding, rect.left), maxLeft)}px`;
+      menu.style.width = `${menuWidth}px`;
+      menu.style.maxHeight = `${maxHeight}px`;
+      menu.style.top = openAbove
+        ? `${Math.max(viewportPadding, rect.top - Math.min(menu.scrollHeight, maxHeight) - gap)}px`
+        : `${Math.min(rect.bottom + gap, window.innerHeight - viewportPadding - maxHeight)}px`;
+    };
+
+    const open = (focusIndex = null) => {
+      if (select.disabled) return;
+      closeOpenSelect();
+      syncSelection();
+      shell.classList.add('is-open');
+      trigger.setAttribute('aria-expanded', 'true');
+      menu.hidden = false;
+      positionMenu();
+      openSelect = { close, position: positionMenu };
+      if (focusIndex !== null) {
+        focusOption(focusIndex);
+      }
+    };
+
+    const close = () => {
+      menu.hidden = true;
+      shell.classList.remove('is-open');
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+
+    const focusOption = (index) => {
+      const items = menu.querySelectorAll('[role="option"]');
+      if (!items.length) return;
+      activeIndex = Math.max(0, Math.min(index, items.length - 1));
+      items[activeIndex].focus();
+      items[activeIndex].scrollIntoView({ block: 'nearest' });
+    };
+
+    trigger.addEventListener('click', () => {
+      if (menu.hidden) open();
+      else closeOpenSelect();
+    });
+
+    trigger.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        if (menu.hidden) open(activeIndex + direction);
+        else focusOption(activeIndex + direction);
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        if (menu.hidden) open(event.key === 'Home' ? 0 : options.length - 1);
+        else focusOption(event.key === 'Home' ? 0 : options.length - 1);
+      } else if (event.key === 'Escape' && !menu.hidden) {
+        event.preventDefault();
+        closeOpenSelect();
+        trigger.focus();
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (menu.hidden) open(activeIndex);
+      }
+    });
+
+    menu.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        focusOption(activeIndex + (event.key === 'ArrowDown' ? 1 : -1));
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        focusOption(event.key === 'Home' ? 0 : options.length - 1);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeOpenSelect();
+        trigger.focus();
+      } else if (event.key === 'Tab') {
+        closeOpenSelect();
+      }
+    });
+
+    select.classList.add('native-select-bridge');
+    select.setAttribute('aria-hidden', 'true');
+    select.tabIndex = -1;
+    select.addEventListener('change', syncSelection);
+    shell.insertBefore(trigger, select);
+    document.body.appendChild(menu);
+    syncSelection();
+  }
+
+  document.addEventListener('pointerdown', (event) => {
+    if (openSelect && !event.target.closest('.select-shell') && !event.target.closest('.app-select-menu')) {
+      closeOpenSelect();
+    }
+  });
+  window.addEventListener('resize', closeOpenSelect);
+  window.addEventListener('scroll', () => openSelect?.position(), true);
+}
+
 function fillSettings(settings) {
   elements.browserPath.value = settings.browserPath || '';
   elements.cookiePath.value = settings.cookiePath || '';
   elements.outputDir.value = settings.outputDir || '';
   elements.failureCsvPath.value = settings.failureCsvPath || '';
   elements.obsidianVaultPath.value = settings.obsidianVaultPath || '';
-  elements.obsidianSetupMode.value = settings.obsidianSetupMode || 'none';
+  elements.obsidianSetupMode.value = settings.obsidianSetupMode || 'bases+community';
   elements.diagramExportMode.value = settings.diagramExportMode || 'auto';
-  elements.vaultExportLayout.value = settings.vaultExportLayout || 'output-only';
-  elements.vaultExportSubdir.value = settings.vaultExportSubdir || '';
+  elements.assetDirectoryName.value = settings.assetDirectoryName || '_assets';
+  elements.vaultExportLayout.value = settings.vaultExportLayout || 'direct-to-vault';
+  elements.vaultExportSubdir.value = settings.vaultExportSubdir || '语雀导出';
   elements.encryptedPasswords.value = normalizePasswordList(settings.encryptedBlockPasswords, settings.encryptedBlockPassword);
-  elements.reencryptEncryptedBlocksMode.value = settings.reencryptEncryptedBlocksMode || 'off';
+  elements.reencryptEncryptedBlocksMode.value = settings.reencryptEncryptedBlocksMode || 'global';
   elements.reencryptGlobalPassword.value = settings.reencryptGlobalPassword || '';
   elements.downloadImages.checked = settings.downloadImages !== false;
   elements.downloadAttachments.checked = settings.downloadAttachments !== false;
@@ -248,7 +512,7 @@ function readSettings() {
     datatableExportMode: 'structured-first',
     complexBlockMode: 'auto',
     diagramSnapshotMode: 'fallback-only',
-    assetLayout: 'book_assets',
+    assetDirectoryName: elements.assetDirectoryName.value.trim() || '_assets',
     autoCheckUpdates: elements.autoCheckUpdates.checked,
   };
 }
@@ -342,10 +606,6 @@ function renderUpdateState(update = {}) {
   elements.installUpdateBtn.hidden = !isDownloaded;
   elements.installUpdateBtn.disabled = !update.canInstall;
   elements.installUpdateBtn.textContent = update.canInstall ? '安装并重启' : '安装目录不可写';
-
-  if (!update.isPackaged && status !== 'error') {
-    elements.updateStatus.textContent = '当前为开发模式：可以检查更新，但不能替换源码运行入口。';
-  }
 }
 
 function formatUpdateTime(value) {
@@ -474,14 +734,33 @@ async function chooseVaultDir() {
   }
 }
 
-async function refreshLoginStatus() {
-  try {
-    const payload = await window.pywebview.api.getLoginStatus(readSettings());
-    state.loginUser = payload?.loggedIn ? payload.user || null : null;
-  } catch {
-    state.loginUser = null;
+async function refreshLoginStatus(options = {}) {
+  const attempts = Math.max(1, Number(options.attempts) || 1);
+  const delayMs = Math.max(0, Number(options.delayMs) || 0);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const payload = await window.pywebview.api.getLoginStatus(readSettings());
+      state.loginUser = payload?.loggedIn ? payload.user || null : null;
+    } catch {
+      state.loginUser = null;
+    }
+    if (state.loginUser || attempt === attempts - 1) break;
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
   }
   renderAccount();
+  syncUnauthenticatedEmptyStates();
+}
+
+function syncUnauthenticatedEmptyStates() {
+  if (state.loginUser) return;
+  if (state.books.length === 0) {
+    elements.booksList.className = 'books-list empty-state';
+    elements.booksList.textContent = '';
+  }
+  if (!state.documentSourcesScanned) {
+    elements.favoriteDocumentRows.textContent = '';
+    elements.collaborationDocumentRows.textContent = '';
+  }
 }
 
 function renderAccount() {
@@ -496,7 +775,7 @@ function renderAccount() {
     return;
   }
 
-  elements.accountText.textContent = '未检测到登录状态';
+  elements.accountText.textContent = '';
   elements.accountBadge.classList.remove('logged-in');
   elements.loginBtn.textContent = '登录语雀';
   elements.loginBtn.classList.add('primary');
@@ -506,8 +785,9 @@ function renderAccount() {
 function togglePasswordVisibility() {
   const masked = elements.encryptedPasswords.classList.toggle('masked-textarea');
   elements.togglePasswordsBtn.classList.toggle('active', !masked);
-  elements.togglePasswordsBtn.title = masked ? '显示或隐藏密码' : '隐藏密码';
+  elements.togglePasswordsBtn.title = masked ? '显示密码' : '隐藏密码';
   elements.togglePasswordsBtn.setAttribute('aria-label', masked ? '显示密码' : '隐藏密码');
+  elements.togglePasswordsBtn.setAttribute('aria-pressed', String(!masked));
 }
 
 function syncEncryptedPasswordsHeight() {
@@ -536,15 +816,16 @@ function toggleReencryptPasswordVisibility() {
   const visible = elements.reencryptGlobalPassword.type === 'text';
   elements.reencryptGlobalPassword.type = visible ? 'password' : 'text';
   elements.toggleReencryptPasswordBtn.classList.toggle('active', !visible);
-  elements.toggleReencryptPasswordBtn.title = visible ? '显示或隐藏重加密密码' : '隐藏重加密密码';
+  elements.toggleReencryptPasswordBtn.title = visible ? '显示重加密密码' : '隐藏重加密密码';
   elements.toggleReencryptPasswordBtn.setAttribute('aria-label', visible ? '显示重加密密码' : '隐藏重加密密码');
+  elements.toggleReencryptPasswordBtn.setAttribute('aria-pressed', String(!visible));
 }
 
 function syncReencryptControls() {
   const mode = elements.reencryptEncryptedBlocksMode.value || 'off';
   const enableGlobalPassword = mode === 'global';
   if (elements.reencryptGlobalPasswordField) {
-    elements.reencryptGlobalPasswordField.hidden = false;
+    elements.reencryptGlobalPasswordField.hidden = !enableGlobalPassword;
     elements.reencryptGlobalPasswordField.classList.toggle('is-disabled', !enableGlobalPassword);
   }
   elements.reencryptGlobalPassword.disabled = !enableGlobalPassword;
@@ -554,14 +835,19 @@ function syncReencryptControls() {
     elements.toggleReencryptPasswordBtn.classList.remove('active');
     elements.toggleReencryptPasswordBtn.title = '显示或隐藏重加密密码';
     elements.toggleReencryptPasswordBtn.setAttribute('aria-label', '显示重加密密码');
+    elements.toggleReencryptPasswordBtn.setAttribute('aria-pressed', 'false');
   }
 }
 
 function syncVaultExportControls() {
   const outputOnly = (elements.vaultExportLayout.value || 'output-only') === 'output-only';
+  const pathPairRow = elements.vaultExportSubdir.closest('.path-pair-row');
   const mainField = elements.obsidianVaultPath.closest('.path-pair-main');
   const subField = elements.vaultExportSubdir.closest('.path-pair-sub');
 
+  if (pathPairRow) {
+    pathPairRow.hidden = outputOnly;
+  }
   elements.obsidianVaultPath.disabled = outputOnly;
   elements.chooseVaultBtn.disabled = outputOnly;
   elements.vaultExportSubdir.disabled = outputOnly;
@@ -575,8 +861,8 @@ function syncVaultExportControls() {
 }
 
 async function startLogin() {
+  setExportProgressVisible(false);
   await saveSettings();
-  state.loginWasAlreadyAuthenticated = Boolean(state.loginUser);
   // 如果当前已登录，说明用户点击的是“切换账号”，需要强制重新认证。
   // 这里额外检查按钮样式/文案，避免状态刷新滞后时按钮已显示“切换账号”，
   // 但 state.loginUser 还没同步，导致后端误走“复用旧会话”的快速返回分支。
@@ -599,34 +885,77 @@ async function startLogin() {
 
 async function scanBooks() {
   try {
+    setExportProgressVisible(false);
     await saveSettings();
     renderStatus('正在扫描知识库...');
     const result = await requestBookScan();
     applyBookScanResult(result, '已扫描');
     await refreshLoginStatus();
+    await scanDocumentSources();
   } catch (error) {
     renderStatus(`扫描知识库失败: ${error.message}`);
   }
 }
 
-async function autoScanBooksOnLaunch() {
+async function scanDocumentSources() {
   try {
-    renderStatus('已检测到登录账号，正在自动扫描知识库...');
+    setExportProgressVisible(false);
+    await saveSettings();
+    if (typeof window.pywebview.api.startDocumentSourceScan !== 'function') {
+      throw new Error('当前桌面桥接版本不支持收藏/协作扫描，请使用源码启动新版程序。');
+    }
+    const { jobId } = await window.pywebview.api.startDocumentSourceScan(readSettings());
+    state.currentJobId = jobId;
+    state.currentJobKind = 'source-scan';
+    state.currentJobStatus = 'running';
+    syncControls();
+    renderStatus(
+      '正在读取收藏与协作分类；不会展开知识库入口。扫描结果完整前会保留现有列表。',
+    );
+    pollJob(jobId);
+  } catch (error) {
+    renderStatus(`扫描收藏/协作文档失败: ${error.message}`);
+  }
+}
+
+function applyDocumentSourceScanResult(result = {}) {
+  if (!Array.isArray(result.documents) || !Array.isArray(result.excluded)) {
+    throw new Error('扫描响应缺少文档或排除项列表，不能按空列表继续。');
+  }
+  state.documentSources = result.documents;
+  state.documentSourcesScanned = true;
+  const excludedCount = Number(result.excludedCount ?? result.excluded.length);
+  state.documentSourcesExcludedCount = Number.isFinite(excludedCount) ? excludedCount : result.excluded.length;
+  const availableKeys = new Set(result.documents.map((entry) => String(entry.documentKey || '')).filter(Boolean));
+  state.selectedDocumentKeys = new Set(
+    [...state.selectedDocumentKeys].filter((documentKey) => availableKeys.has(documentKey)),
+  );
+  renderDocumentSources();
+  renderStatus(
+    `已扫描收藏/协作：${result.documents.length} 篇具体文档，${excludedCount} 个入口或暂不可识别项目未展开。`,
+  );
+}
+
+async function autoScanBooksOnLaunch() {
+  renderStatus('已检测到登录账号，正在自动扫描知识库、收藏与协作...');
+  try {
     const result = await requestBookScan();
     applyBookScanResult(result, '已自动扫描');
   } catch (error) {
     renderStatus(`自动扫描知识库失败: ${error.message}`);
   }
+  await scanDocumentSources();
 }
 
-async function autoScanBooksAfterFirstLogin() {
+async function autoScanBooksAfterLogin() {
+  renderStatus('登录完成，正在自动扫描知识库、收藏与协作...');
   try {
-    renderStatus('登录完成，正在自动扫描知识库...');
     const result = await requestBookScan();
     applyBookScanResult(result, '首次登录成功，已自动扫描');
   } catch (error) {
     renderStatus(`登录完成，但自动扫描知识库失败: ${error.message}`);
   }
+  await scanDocumentSources();
 }
 
 async function requestBookScan() {
@@ -689,7 +1018,23 @@ async function onExportButtonClick() {
     return;
   }
 
-  await startExport();
+  if (
+    state.currentJobKind === 'export' &&
+    state.currentJobStatus === 'paused' &&
+    (
+      state.currentExportSource === 'document-sources' ||
+      (state.currentExportSource === 'retry' && state.lastExportConfig?.retrySourceDocuments?.length > 0)
+    )
+  ) {
+    await startDocumentSourceExport(state.lastExportConfig);
+    return;
+  }
+
+  if (state.selectedDocumentKeys.size > 0) {
+    await startDocumentSourceExport();
+  } else {
+    await startExport();
+  }
 }
 
 async function onRetryFailuresButtonClick() {
@@ -765,6 +1110,54 @@ async function startExport() {
   pollJob(jobId);
 }
 
+async function startDocumentSourceExport(resumeConfig = null) {
+  const selectedDocumentKeys = Array.isArray(resumeConfig?.selectedDocumentKeys)
+    ? resumeConfig.selectedDocumentKeys
+    : collectSelectedDocumentKeysFromUi();
+  state.selectedDocumentKeys = new Set(selectedDocumentKeys);
+  if (selectedDocumentKeys.length === 0) {
+    renderStatus('请先在“收藏与协作”中选择至少一篇具体文档。');
+    return;
+  }
+  if (typeof window.pywebview.api.startDocumentSourceExport !== 'function') {
+    renderStatus('当前桌面桥接版本不支持收藏/协作文档导出，请使用源码启动新版程序。');
+    return;
+  }
+
+  if (!resumeConfig) {
+    await saveSettings();
+  }
+  const config = {
+    ...(resumeConfig || readSettings()),
+    selectedDocumentKeys,
+  };
+  state.lastExportConfig = config;
+  state.lastSelectionSummary = { totalBooks: 0, totalDocuments: selectedDocumentKeys.length };
+  state.lastProgressSnapshot = {
+    completedBooks: 0,
+    totalBooks: 0,
+    completedDocuments: 0,
+    totalDocuments: selectedDocumentKeys.length,
+    bookCompleted: 0,
+    bookTotal: selectedDocumentKeys.length,
+    currentBook: '',
+    currentDoc: '',
+  };
+  const { jobId } = await window.pywebview.api.startDocumentSourceExport(config);
+  state.currentJobId = jobId;
+  state.currentJobKind = 'export';
+  state.currentJobStatus = 'running';
+  state.currentExportSource = 'document-sources';
+  state.currentOutputDir = config.outputDir;
+  syncControls();
+  renderStatus(`已启动来源文档导出，仅处理明确选择的 ${selectedDocumentKeys.length} 篇文档。`);
+  renderLogs([`收藏/协作文档导出已启动，共 ${selectedDocumentKeys.length} 篇。`]);
+  setProgress(0, '准备导出...', `0% · 文档 0/${selectedDocumentKeys.length}`);
+  setBookProgress(0, '检查所选文档...', `0% · 文档 0/${selectedDocumentKeys.length}`);
+  maybeScrollTaskLogsIntoView();
+  pollJob(jobId);
+}
+
 async function startRetryExportFromFailureCsv() {
   const failureCsvPath = elements.failureCsvPath.value.trim();
   if (!failureCsvPath) {
@@ -790,6 +1183,8 @@ async function startRetryExportFromFailureCsv() {
     selectedBooks: result.selectedBooks || [],
     fullySelectedBooks: [],
     selectedDocuments: result.selectedDocuments || [],
+    selectedDocumentKeys: result.selectedDocumentKeys || [],
+    retrySourceDocuments: result.retrySourceDocuments || [],
     incrementalExport: false,
   };
   state.lastSelectionSummary = {
@@ -814,16 +1209,24 @@ async function startRetryExportFromFailureCsv() {
   syncControls();
 
   const unmatchedCount = Array.isArray(result.unmatchedDocuments) ? result.unmatchedDocuments.length : 0;
-  renderStatus(`失败文档重导任务已启动，将覆盖重导 ${result.documentCount || 0} 篇文档。`);
+  renderStatus(
+    result.sourceRetry
+      ? `来源文档失败重试已启动，仅重导 ${result.documentCount || 0} 篇文档，不扫描知识库。`
+      : `失败文档重导任务已启动，将覆盖重导 ${result.documentCount || 0} 篇文档。`,
+  );
   renderLogs([
     `已从失败日志读取 ${result.rowCount || 0} 条记录，去重后匹配到 ${result.documentCount || 0} 篇文档。`,
-    `本次已自动关闭增量导出，并使用失败日志所在目录作为输出目录：${state.currentOutputDir}`,
+    result.sourceRetry
+      ? `这些来源文档将按 documentKey 直接重试，使用失败日志所在目录：${state.currentOutputDir}`
+      : `本次已自动关闭增量导出，并使用失败日志所在目录作为输出目录：${state.currentOutputDir}`,
     unmatchedCount > 0 ? `有 ${unmatchedCount} 篇文档当前未在可访问知识库中找到，已暂时跳过。` : '失败日志中的可匹配文档都已加入本次重导任务。',
   ]);
   setProgress(
     0,
     '准备重新导出...',
-    `0% · 知识库 0/${state.lastSelectionSummary.totalBooks} · 文档 0/${state.lastSelectionSummary.totalDocuments}`,
+    result.sourceRetry
+      ? `0% · 文档 0/${state.lastSelectionSummary.totalDocuments}`
+      : `0% · 知识库 0/${state.lastSelectionSummary.totalBooks} · 文档 0/${state.lastSelectionSummary.totalDocuments}`,
   );
   setBookProgress(0, '等待知识库任务...', '0% · 文档 0/0');
   maybeScrollTaskLogsIntoView();
@@ -837,7 +1240,11 @@ async function pauseExport() {
   await window.pywebview.api.pauseExport(state.currentJobId);
   state.currentJobStatus = 'pausing';
   syncControls();
-  renderStatus('已请求暂停，当前文档处理完成后会自动暂停。暂停后可重新调整知识库选择，再继续导出。');
+  renderStatus(
+    state.currentExportSource === 'document-sources'
+      ? '已请求暂停，当前文档处理完成后会自动暂停；继续时会沿用本次勾选的文档。'
+      : '已请求暂停，当前文档处理完成后会自动暂停。暂停后可重新调整知识库选择，再继续导出。',
+  );
 }
 
 async function stopExport() {
@@ -847,7 +1254,11 @@ async function stopExport() {
   await window.pywebview.api.cancelExport(state.currentJobId);
   state.currentJobStatus = 'stopping';
   syncControls();
-  renderStatus('已请求停止，当前进度会先保存。');
+  renderStatus(
+    state.currentJobKind === 'source-scan'
+      ? '已请求停止；当前列表页结束后将取消，之前的完整扫描结果会保留。'
+      : '已请求停止，当前进度会先保存。',
+  );
 }
 
 function renderBooks() {
@@ -856,6 +1267,7 @@ function renderBooks() {
     elements.booksList.textContent = '没有可导出的知识库。';
     elements.bookCount.textContent = '0 个知识库 / 0 篇文档';
     syncTreeFoldToggleButton();
+    syncCategorySelectionControls();
     syncControls();
     return;
   }
@@ -884,7 +1296,184 @@ function renderBooks() {
 
   elements.booksList.appendChild(tree);
   syncTreeFoldToggleButton();
+  syncCategorySelectionControls();
   syncControls();
+}
+
+function renderDocumentSources() {
+  const groups = [
+    ['favorite', elements.favoriteDocumentRows, '收藏'],
+    ['collaboration', elements.collaborationDocumentRows, '协作'],
+  ];
+  for (const [, list] of groups) list.replaceChildren();
+  if (!state.documentSourcesScanned) {
+    for (const [, list] of groups) {
+      list.className = 'empty-state';
+      list.textContent = '扫描知识库后会同时读取此分类。';
+    }
+    if (state.books.length === 0) elements.bookCount.textContent = '尚未扫描';
+    syncCategorySelectionControls();
+    syncControls();
+    return;
+  }
+
+  const counts = new Map();
+  for (const [sourceType, list, categoryName] of groups) {
+    const entries = getDocumentsForSourceType(sourceType);
+    counts.set(sourceType, { total: entries.length });
+    if (entries.length === 0) {
+      list.className = 'empty-state';
+      list.textContent = `${categoryName}分类中没有可直接导出的具体文档。`;
+      continue;
+    }
+
+    list.className = 'source-document-list';
+    for (const entry of entries) {
+      const supported = ['Doc', 'Sheet'].includes(entry.documentType);
+      const row = document.createElement('div');
+      row.className = 'tree-row source-document-row';
+
+      const toggle = document.createElement('div');
+      toggle.className = 'tree-spacer';
+      row.appendChild(toggle);
+
+      const checkboxWrap = document.createElement('label');
+      checkboxWrap.className = 'tree-checkbox';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.dataset.documentKey = String(entry.documentKey || '');
+      checkbox.checked = state.selectedDocumentKeys.has(checkbox.dataset.documentKey);
+      checkbox.disabled = !supported || !checkbox.dataset.documentKey;
+      checkbox.setAttribute('aria-label', `选择文档：${String(entry.title || '未命名文档')}`);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          state.selectedBooks.clear();
+          state.selectedDocuments.clear();
+          renderBooks();
+          state.selectedDocumentKeys.add(checkbox.dataset.documentKey);
+        } else {
+          state.selectedDocumentKeys.delete(checkbox.dataset.documentKey);
+        }
+        renderDocumentSources();
+      });
+      checkboxWrap.appendChild(checkbox);
+      row.appendChild(checkboxWrap);
+
+      const title = document.createElement('button');
+      title.type = 'button';
+      title.className = 'tree-label source-document-title';
+      title.disabled = !supported || !checkbox.dataset.documentKey;
+      title.setAttribute('aria-label', `选择文档：${String(entry.title || '未命名文档')}`);
+      title.addEventListener('click', () => checkbox.click());
+      const titleText = document.createElement('strong');
+      titleText.textContent = String(entry.title || '未命名文档');
+
+      const typeBadge = document.createElement('span');
+      typeBadge.className = 'tree-type-badge';
+      typeBadge.textContent = entry.documentType === 'Sheet' ? '数据表' : '文档';
+      title.append(titleText, typeBadge);
+      row.appendChild(title);
+      list.appendChild(row);
+    }
+  }
+  elements.bookCount.textContent =
+    `收藏 ${counts.get('favorite').total}/${counts.get('favorite').total} 篇 · `
+    + `协作 ${counts.get('collaboration').total}/${counts.get('collaboration').total} 篇 · `
+    + `已选 ${state.selectedDocumentKeys.size} 篇 · ${state.documentSourcesExcludedCount} 个入口/项目未展开`;
+  syncCategorySelectionControls();
+  syncControls();
+}
+
+function getEntrySourceTypes(entry) {
+  const relations = Array.isArray(entry.sourceRelations) ? entry.sourceRelations : [];
+  const sourceTypes = new Set(relations.map((relation) => relation?.sourceType));
+  if (sourceTypes.size === 0 && entry.sourceType) sourceTypes.add(entry.sourceType);
+  return sourceTypes;
+}
+
+function getDocumentsForSourceType(sourceType) {
+  return state.documentSources.filter((entry) => getEntrySourceTypes(entry).has(sourceType));
+}
+
+function toggleCategory(categoryId) {
+  const toggle = document.querySelector(`[data-category-toggle="${categoryId}"]`);
+  if (!toggle) return;
+
+  const content = document.getElementById(toggle.getAttribute('aria-controls'));
+  if (!content) return;
+
+  const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+  toggle.setAttribute('aria-expanded', String(!isExpanded));
+  content.hidden = isExpanded;
+}
+
+function toggleCategorySelection(categoryId, checked) {
+  if (categoryId === 'knowledge') {
+    state.selectedBooks = checked
+      ? new Set(state.books.map((book) => String(book.id)))
+      : new Set();
+    state.selectedDocuments.clear();
+    state.selectedDocumentKeys.clear();
+    renderBooks();
+    renderDocumentSources();
+    return;
+  }
+
+  if (!['favorite', 'collaboration'].includes(categoryId)) return;
+  const documentKeys = getDocumentsForSourceType(categoryId)
+    .filter((entry) => ['Doc', 'Sheet'].includes(entry.documentType))
+    .map((entry) => String(entry.documentKey || '').trim())
+    .filter(Boolean);
+  if (documentKeys.length === 0) return;
+
+  if (checked) {
+    state.selectedBooks.clear();
+    state.selectedDocuments.clear();
+    documentKeys.forEach((documentKey) => state.selectedDocumentKeys.add(documentKey));
+  } else {
+    documentKeys.forEach((documentKey) => state.selectedDocumentKeys.delete(documentKey));
+  }
+  renderBooks();
+  renderDocumentSources();
+}
+
+function syncCategorySelectionControls() {
+  const knowledgeStates = state.books.map((book) => {
+    const bookId = String(book.id);
+    const documentUrls = collectDocumentUrls(book.root, {
+      bookUserUrl: book.userUrl,
+      bookSlug: book.slug,
+    });
+    const selected = state.selectedBooks.has(bookId)
+      || (documentUrls.length > 0 && documentUrls.every((url) => state.selectedDocuments.has(url)));
+    const partiallySelected = !state.selectedBooks.has(bookId)
+      && documentUrls.some((url) => state.selectedDocuments.has(url));
+    return { selected, partiallySelected };
+  });
+  syncCategoryCheckbox('knowledge', knowledgeStates);
+
+  for (const sourceType of ['favorite', 'collaboration']) {
+    const documentKeys = getDocumentsForSourceType(sourceType)
+      .filter((entry) => ['Doc', 'Sheet'].includes(entry.documentType))
+      .map((entry) => String(entry.documentKey || '').trim())
+      .filter(Boolean);
+    const selectedKeys = new Set(state.selectedDocumentKeys);
+    syncCategoryCheckbox(
+      sourceType,
+      documentKeys.map((documentKey) => ({ selected: selectedKeys.has(documentKey) })),
+    );
+  }
+}
+
+function syncCategoryCheckbox(categoryId, items) {
+  const checkbox = document.querySelector(`[data-category-select="${categoryId}"]`);
+  if (!checkbox) return;
+
+  const selectedCount = items.filter((item) => item.selected || item.partiallySelected).length;
+  checkbox.checked = items.length > 0 && selectedCount === items.length
+    && items.every((item) => item.selected);
+  checkbox.indeterminate = selectedCount > 0 && !checkbox.checked;
+  checkbox.disabled = items.length === 0;
 }
 
 function renderTreeNode(node, meta) {
@@ -956,6 +1545,7 @@ function renderTreeNode(node, meta) {
   } else {
     label.appendChild(title);
     const subtitle = document.createElement('span');
+    subtitle.className = 'tree-type-badge';
     subtitle.textContent = describeNode(node);
     label.appendChild(subtitle);
     if (isDocument) {
@@ -1014,6 +1604,7 @@ function toggleBookSelection(bookId, checked) {
 
 function handleBookSelectionInteraction(bookId, event, source) {
   event.preventDefault();
+  clearSelectedSourceDocuments();
   if (source === 'checkbox') {
     event.stopPropagation();
   }
@@ -1055,6 +1646,7 @@ function syncBookCheckboxes(bookId, checked) {
 
 function handleNodeSelectionInteraction(bookId, descendantDocUrls, event, source) {
   event.preventDefault();
+  clearSelectedSourceDocuments();
   if (source === 'checkbox') {
     event.stopPropagation();
   }
@@ -1076,6 +1668,12 @@ function handleNodeSelectionInteraction(bookId, descendantDocUrls, event, source
     descendantDocUrls.forEach((docUrl) => state.selectedDocuments.add(docUrl));
   }
   renderBooks();
+}
+
+function clearSelectedSourceDocuments() {
+  if (state.selectedDocumentKeys.size === 0) return;
+  state.selectedDocumentKeys.clear();
+  renderDocumentSources();
 }
 
 function syncDocumentCheckboxes(docUrl, checked) {
@@ -1269,27 +1867,65 @@ function pollJob(jobId) {
     syncControls();
 
     if (job.status === 'success') {
+      const exportSource = state.currentExportSource;
       clearPollTimer();
       finalizeJobState(job);
-      if (job.kind === 'login') {
-        await refreshLoginStatus();
-        const shouldAutoScanAfterFirstLogin = !state.loginWasAlreadyAuthenticated && Boolean(state.loginUser);
-        state.loginWasAlreadyAuthenticated = Boolean(state.loginUser);
-        if (shouldAutoScanAfterFirstLogin) {
-          await autoScanBooksAfterFirstLogin();
+      if (job.kind === 'source-scan') {
+        try {
+          applyDocumentSourceScanResult(job.result || {});
+          const result = job.result || {};
+          renderStatus(
+            `已扫描收藏/协作：${result.documents.length} 篇具体文档，`
+            + `${result.excludedCount ?? result.excluded.length} 个入口或暂不可识别项目未展开。`,
+          );
+          await refreshLoginStatus();
+        } catch (error) {
+          renderStatus(`扫描收藏/协作文档失败: ${error.message}；保留上次完整列表。`);
+        }
+      } else if (job.kind === 'login') {
+        await refreshLoginStatus({ attempts: 4, delayMs: 750 });
+        if (state.loginUser) {
+          await autoScanBooksAfterLogin();
         } else {
-          renderStatus('登录完成');
+          renderStatus('登录流程已结束，但当前未检测到有效登录状态。');
         }
       } else {
-        renderStatus('导出完成');
+        const result = job.result || {};
+        if (result.status === 'partial') {
+          const totals = result.totals || {};
+          if (exportSource === 'document-sources') {
+            renderStatus(
+              `来源导出有未完整项目：资源不完整 ${Number(totals.incomplete || 0)}，`
+              + `需要登录 ${Number(totals.authenticationRequired || 0)}，`
+              + `受限 ${Number(totals.restricted || 0)}，不可用 ${Number(totals.unavailable || 0)}，`
+              + `其他失败 ${Math.max(0, Number(totals.failed || 0)
+                - Number(totals.authenticationRequired || 0)
+                - Number(totals.restricted || 0)
+                - Number(totals.unavailable || 0))}，`
+              + `不支持 ${Number(totals.unsupported || 0)}，本地修改保护 ${Number(totals.protected || 0)}；请查看结果报告。`,
+            );
+          } else {
+            const affected = Number(totals.failed || 0)
+              + Number(totals.unsupported || 0)
+              + Number(totals.incomplete || 0)
+              + Number(totals.protected || 0);
+            renderStatus(`导出已完成，但有 ${affected} 篇文档失败、不支持、资源不完整或因本地修改而受保护；请查看结果报告。`);
+          }
+        } else {
+          renderStatus('导出完成');
+        }
       }
       const result = job.result || {};
       state.currentOutputDir = result.contentOutputDir || result.outputDir || state.currentOutputDir;
       if (result.failureCsv) {
-        renderLogs([...(job.logs || []), `失败 CSV: ${result.failureCsv}`]);
+        // CSV 每次都会创建；零条记录只代表没有问题，不能固定标为“失败”。
+        const csvLabel = result.failureRecordCount === 0
+          ? '本次无错误或警告记录（CSV 仅含表头）'
+          : '问题记录 CSV';
+        renderLogs([...(job.logs || []), `${csvLabel}: ${result.failureCsv}`]);
       }
       if (job.kind === 'export') {
-        applyCompletedExportProgress(result);
+        applyCompletedExportProgress(result, exportSource);
       }
     } else if (job.status === 'paused') {
       clearPollTimer();
@@ -1299,14 +1935,30 @@ function pollJob(jobId) {
     } else if (job.status === 'error' || job.status === 'cancelled') {
       clearPollTimer();
       finalizeJobState(job);
-      if (job.kind === 'login' && job.status === 'cancelled') {
-        // 切换账号过程中用户关闭登录浏览器，视为主动取消：
-        // 刷新账号状态并恢复按钮可点击，不把界面停留在“登录中”。
-        await refreshLoginStatus();
+      if (job.kind === 'login') {
+        // 登录失败或取消后都要重新检查一次状态。
+        // 否则前端会继续显示登录前的旧账号徽标，误导后续诊断。
+        await refreshLoginStatus({ attempts: 2, delayMs: 500 });
         state.loginWasAlreadyAuthenticated = Boolean(state.loginUser);
-        renderStatus(job.result?.message || '已取消切换账号，可继续使用当前账号。');
+        if (job.status === 'cancelled') {
+          renderStatus(
+            state.loginUser
+              ? (job.result?.message || '已取消切换账号，可继续使用当前账号。')
+              : '登录流程已取消，当前未检测到有效登录状态。',
+          );
+        } else {
+          const errorMessage = job.error || job.result?.message || '登录失败';
+          const stateMessage = state.loginUser
+            ? '当前账号仍可用。'
+            : '当前未检测到有效登录状态。';
+          renderStatus(`${errorMessage} ${stateMessage}`);
+        }
       } else {
-        renderStatus(job.error || job.result?.message || (job.status === 'cancelled' ? '任务已停止' : '任务失败'));
+        renderStatus(
+          job.kind === 'source-scan' && job.status === 'cancelled'
+            ? '收藏/协作扫描已取消；保留上次完整列表。'
+            : (job.error || job.result?.message || (job.status === 'cancelled' ? '任务已停止' : '任务失败')),
+        );
       }
     }
   }, 900);
@@ -1321,6 +1973,12 @@ function finalizeJobState(job) {
 }
 
 function syncProgress(job) {
+  if (job.kind !== 'export') {
+    setExportProgressVisible(false);
+    return;
+  }
+  setExportProgressVisible(true);
+
   const latestProgress = [...(job.events || [])].reverse().find((event) => event.percent != null || event.bookPercent != null);
   if (!latestProgress) {
     return;
@@ -1338,20 +1996,25 @@ function syncProgress(job) {
   const completedDocuments = latestProgress.completedDocuments ?? state.lastProgressSnapshot.completedDocuments ?? 0;
   const totalDocuments =
     latestProgress.totalDocuments ?? state.lastProgressSnapshot.totalDocuments ?? selectionSummary.totalDocuments;
+  const isSourceExport = state.currentExportSource === 'document-sources';
   const overallText = currentBook
     ? `当前知识库：${currentBook}`
     : localizeProgressMessage(latestProgress.message || '处理中...');
-  const overallStats = `${formatPercent(overallPercent)} · 知识库 ${completedBooks}/${totalBooks || 0} · 文档 ${completedDocuments}/${totalDocuments || 0}`;
+  const overallStats = isSourceExport
+    ? `${formatPercent(overallPercent)} · 文档 ${completedDocuments}/${totalDocuments || 0}`
+    : `${formatPercent(overallPercent)} · 知识库 ${completedBooks}/${totalBooks || 0} · 文档 ${completedDocuments}/${totalDocuments || 0}`;
   setProgress(overallPercent, overallText, overallStats);
 
   const bookCompleted = latestProgress.bookCompleted ?? state.lastProgressSnapshot.bookCompleted ?? 0;
   const bookTotal = latestProgress.bookTotal ?? state.lastProgressSnapshot.bookTotal ?? 0;
   const bookPercent = latestProgress.bookPercent ?? 0;
-  const bookText = currentDoc
-    ? `当前笔记：${currentDoc}`
-    : currentBook
-      ? `${currentBook} ${bookCompleted}/${bookTotal || 0}`
-      : localizeProgressMessage(latestProgress.message || '暂无任务');
+  const bookText = isSourceExport
+    ? (currentDoc ? `当前文档：${currentDoc}` : '检查所选文档...')
+    : currentDoc
+      ? `当前笔记：${currentDoc}`
+      : currentBook
+        ? `${currentBook} ${bookCompleted}/${bookTotal || 0}`
+        : localizeProgressMessage(latestProgress.message || '暂无任务');
   const bookStats = `${formatPercent(bookPercent)} · 文档 ${bookCompleted}/${bookTotal || 0}`;
   setBookProgress(bookPercent, bookText, bookStats);
 
@@ -1365,6 +2028,12 @@ function syncProgress(job) {
     currentBook,
     currentDoc,
   };
+}
+
+function setExportProgressVisible(visible) {
+  if (elements.progressMeta) {
+    elements.progressMeta.hidden = !visible;
+  }
 }
 
 function maybeScrollTaskLogsIntoView() {
@@ -1415,8 +2084,27 @@ function setBookProgress(value, text, statsText = '') {
   }
 }
 
-function applyCompletedExportProgress(result = {}) {
+function applyCompletedExportProgress(result = {}, exportSource = '') {
   const totals = result.totals || {};
+  if (
+    exportSource === 'document-sources' ||
+    (exportSource === 'retry' && state.lastExportConfig?.retrySourceDocuments?.length > 0)
+  ) {
+    const totalDocuments = Number(
+      totals.planned ?? state.lastProgressSnapshot.totalDocuments ?? state.lastSelectionSummary.totalDocuments ?? 0,
+    );
+    const completedDocuments = Number(totals.exported || 0)
+      + Number(totals.skipped || 0)
+      + Number(totals.failed || 0)
+      + Number(totals.unsupported || 0)
+      + Number(totals.incomplete || 0)
+      + Number(totals.protected || 0);
+    const completionText = result.status === 'partial' ? '处理完成，存在未完整项目' : '所选文档已完成';
+    setProgress(100, completionText, `100% · 文档 ${completedDocuments}/${totalDocuments}`);
+    setBookProgress(100, '来源文档处理完成', `100% · 文档 ${completedDocuments}/${totalDocuments}`);
+    return;
+  }
+
   const totalBooks = Number(totals.books ?? state.lastProgressSnapshot.totalBooks ?? state.lastSelectionSummary.totalBooks ?? 0);
   const totalDocuments = Number(
     totals.documents ?? state.lastProgressSnapshot.totalDocuments ?? state.lastSelectionSummary.totalDocuments ?? 0,
@@ -1488,6 +2176,8 @@ function syncRetryFailuresButton(exportRunning, exportPaused) {
 function syncControls() {
   const exportRunning =
     state.currentJobKind === 'export' && ['running', 'pausing', 'stopping'].includes(state.currentJobStatus);
+  const sourceScanRunning =
+    state.currentJobKind === 'source-scan' && ['running', 'stopping'].includes(state.currentJobStatus);
   const exportPaused = state.currentJobKind === 'export' && state.currentJobStatus === 'paused';
   const anyJobRunning = ['running', 'pausing', 'stopping'].includes(state.currentJobStatus);
   const exportBusy = exportRunning || exportPaused;
@@ -1496,34 +2186,28 @@ function syncControls() {
   const retryBusy =
     state.currentExportSource === 'retry' && state.currentJobKind === 'export' && ['pausing', 'stopping'].includes(state.currentJobStatus);
   const hasBooks = state.books.length > 0;
+  const hasSourceDocuments = state.documentSources.some(
+    (entry) => ['Doc', 'Sheet'].includes(entry.documentType) && entry.documentKey,
+  );
+  const hasCurrentViewContent = hasBooks || hasSourceDocuments;
 
   elements.loginBtn.disabled = anyJobRunning;
   elements.scanBtn.disabled = anyJobRunning;
   elements.chooseFailureCsvBtn.disabled = anyJobRunning;
   elements.retryFailuresBtn.disabled = retryBusy || (!retryRunning && !retryPaused && exportBusy);
-  elements.stopBtn.disabled = !exportRunning || state.currentJobStatus === 'stopping';
+  elements.stopBtn.disabled = !(exportRunning || sourceScanRunning) || state.currentJobStatus === 'stopping';
 
-  setButtonTone(elements.exportBtn, hasBooks ? 'primary' : 'secondary');
+  setButtonTone(elements.exportBtn, hasCurrentViewContent ? 'primary' : 'secondary');
   syncRetryFailuresButton(exportRunning, exportPaused);
 
-  if (exportRunning) {
-    if (state.currentJobStatus === 'pausing') {
-      elements.exportBtn.textContent = '暂停中...';
-      elements.exportBtn.disabled = true;
-    } else if (state.currentJobStatus === 'stopping') {
-      elements.exportBtn.textContent = '停止中...';
-      elements.exportBtn.disabled = true;
-    } else {
-      elements.exportBtn.textContent = '暂停导出';
-      elements.exportBtn.disabled = false;
-    }
-  } else if (exportPaused) {
-    elements.exportBtn.textContent = '继续导出';
-    elements.exportBtn.disabled = false;
-  } else {
-    elements.exportBtn.textContent = '开始导出';
-    elements.exportBtn.disabled = anyJobRunning;
-  }
+  elements.exportBtn.textContent = getExportButtonLabel();
+  elements.exportBtn.disabled = exportRunning
+    ? ['pausing', 'stopping'].includes(state.currentJobStatus)
+    : anyJobRunning;
+}
+
+function getExportButtonLabel() {
+  return '开始导出';
 }
 
 function clearPollTimer() {
@@ -1571,6 +2255,10 @@ function collectSelectedDocumentsFromUi() {
   ).filter(Boolean);
 
   return selected.length > 0 ? selected : [...state.selectedDocuments];
+}
+
+function collectSelectedDocumentKeysFromUi() {
+  return [...state.selectedDocumentKeys];
 }
 
 function collectExportSelectionFromUi() {
