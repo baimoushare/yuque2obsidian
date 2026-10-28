@@ -1,0 +1,33 @@
+{
+  "name": "yuque-exporter-obsidian",
+  "version": "0.9.1",
+  "description": "将语雀知识库、文档与小记导出为 Markdown，面向 Obsidian 归档的 Windows 桌面工具",
+  "license": "AGPL-3.0-only",
+  "author": "baimoushare",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/baimoushare/yuque2obsidian.git"
+  },
+  "bugs": {
+    "url": "https://github.com/baimoushare/yuque2obsidian/issues"
+  },
+  "homepage": "https://github.com/baimoushare/yuque2obsidian#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "desktop": "py .\\desktop_app.py",
+    "export": "node .\\main.js",
+    "test": "node --test",
+    "build:exe": "powershell -ExecutionPolicy Bypass -File .\\build_windows_exe.ps1"
+  },
+  "dependencies": {
+    "@steipete/sweet-cookie": "^0.4.2",
+    "axios": "^1.20.0",
+    "esm": "^3.2.25",
+    "jsonstream": "^1.0.3",
+    "lz-string": "1.5.0",
+    "puppeteer": "^25.9.0"
+  }
+}

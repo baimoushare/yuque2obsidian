@@ -1,0 +1,41 @@
+# ---------- 依赖与构建产物 ----------
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+release/
+output/
+coverage/
+
+# ---------- 运行时私有数据（绝不入库） ----------
+# 登录态：Windows 下经 DPAPI 加密，但仍属本机凭据
+cookies.json
+.yuque-login-profile/
+# 桌面端普通配置（含本机导出路径）
+desktop.settings.json
+# 崩溃与本地验证产物
+crash-reports/
+runtime-validation/
+*.log
+*.bak
+*.jsonl
+
+# ---------- 临时工作目录 ----------
+.tmp-*/
+.tmp-automation/
+.packaging-temp/
+.manual-packaging/
+.memorax-code/
+tmp-test/
+dist/*.exe
+*.exe
+
+# ---------- 本地文档（设计记录不公开） ----------
+docs/
+
+# ---------- 环境变量与编辑器 ----------
+.env.local
+.env.*.local
+.DS_Store

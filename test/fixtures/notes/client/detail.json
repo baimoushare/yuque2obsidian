@@ -1,0 +1,14 @@
+{
+  "id": 501,
+  "user_id": 42,
+  "created_at": "2026-01-01T01:00:00.000Z",
+  "updated_at": "2026-01-02T01:00:00.000Z",
+  "tags": [" 项目 ", {"name": "计划"}, {"name": "项目"}, {"id": 3}, null],
+  "content": {
+    "abstract": "合成摘要",
+    "updated_at": "2026-01-03T01:00:00.000Z",
+    "source": "<lake>合成完整正文</lake>",
+    "html": "<p>合成完整正文</p>",
+    "format": "lake"
+  }
+}
