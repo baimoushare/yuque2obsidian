@@ -1,0 +1,81 @@
+name: 缺陷报告
+description: 报告可复现的功能异常
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **提交前请删除以下内容：Cookie、登录资料、真实笔记正文、个人路径、账号信息。**
+        安全漏洞请勿在此提交，见 SECURITY.md。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 发生了什么，你期望发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 登录后扫描知识库
+        2. 勾选「小记」
+        3. 点击导出
+        4. 观察到……
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 程序内显示的版本号，或 commit 短哈希
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及模块
+      options:
+        - 登录 / 会话
+        - 知识库扫描
+        - 普通文档导出
+        - 小记导出
+        - 数据表 / 电子表格
+        - 画板 / 图形
+        - 图片与附件
+        - Obsidian 直写
+        - 增量与失败重导
+        - 打包 / 自动更新
+        - 界面交互
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: Windows 版本、Node 版本、Python 版本
+      placeholder: Windows 11 23H2 / Node 22.14 / Python 3.12.4
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或失败 CSV 摘要
+      description: 只保留错误行，删除路径与正文
+      render: text
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已删除 Cookie、登录资料、真实笔记正文与个人路径
+          required: true
+        - label: 我已搜索过现有 Issue，没有重复报告
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题
+    url: https://github.com/baimoushare/yuque2obsidian/security/advisories/new
+    about: 请勿公开提交安全漏洞，使用私密报告渠道
+  - name: 商业授权咨询
+    url: https://github.com/baimoushare/yuque2obsidian/issues
+    about: 标题使用 [商业授权] 前缀，说明使用场景与用户规模

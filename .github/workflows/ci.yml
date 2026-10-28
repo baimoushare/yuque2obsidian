@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  node-tests:
+    name: Node 测试
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12'
+          cache: npm
+
+      # 跳过 Chromium 下载：单元测试不依赖真实浏览器
+      - name: 安装依赖
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: 运行测试
+        run: npm test
+
+  python-tests:
+    name: Python 测试 (${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # 分开自检：哪一层坏了能直接定位到步骤
+      - name: 自检 - 解释器
+        run: python -V
+
+      - name: 自检 - 基础依赖
+        run: python -c "import PIL, cryptography, requests; print('base deps ok')"
+
+      - name: 自检 - pywebview（依赖 .NET 运行时）
+        run: python -c "import webview; print('pywebview ok')"
+
+      - name: 自检 - 应用入口可导入
+        run: python -c "import desktop_app; print('desktop_app import ok')"
+
+      - name: 运行测试
+        shell: pwsh
+        run: |
+          python -m unittest discover -s test -p 'test_*.py' -v 2>&1 |
+            Tee-Object -FilePath test-out.txt
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $lines = Get-Content test-out.txt |
+              Where-Object { $_ -match 'FAIL|ERROR|Traceback|Error|assert|Exception' } |
+              Select-Object -First 12
+            $summary = ($lines -join ' || ')
+            if ($summary.Length -gt 1400) { $summary = $summary.Substring(0, 1400) }
+            Write-Host "::error title=PythonTestFailure::$summary"
+          }
+          exit $code
