@@ -11,7 +11,9 @@
 > 本项目是独立社区工具，与语雀、Obsidian 及其运营方**没有任何官方关联、合作或背书**。
 > 请仅用于导出**你自己账号有权访问**的内容；导出他人或团队内容前请确认已获授权。
 
-> 界面截图待用演示数据重新截取后补充。当前版本不放截图，避免把账号、本机路径或知识库名称带入公开仓库。
+![软件界面](images/ui-screenshot.webp)
+
+> 截图中已对账号名与本机路径做模糊处理。
 
 ## 这是什么
 
@@ -97,7 +99,7 @@ npm run build:exe
 - `src/`：Node.js 导出内核与语雀内容处理逻辑
 - `test/`：Node.js 与 Python 自动化测试
 - `tools/`：探测脚本与 OTA 发布工具
-- `images/`：演示素材（当前为空，截图待补）
+- `images/`：README 演示素材
 - `desktop_app.py`：桌面程序入口
 - `desktop_retry.py`：失败日志重导辅助逻辑
 - `desktop_update.py`：OTA 自动更新
