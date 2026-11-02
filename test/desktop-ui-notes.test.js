@@ -53,12 +53,43 @@ const groupBody = (ui, index) =>
 const categoryCheckbox = (fixture) => fixture.nodes.get('[data-category-select="notes"]');
 const tagged = (id, tags, extra = {}) => ({ ...note(id), tags, ...extra });
 
-test('小记分类默认折叠，点击扫描入口存在且没有新增主导出按钮', () => {
+test('小记分类保留勾选、数量和折叠，自动加载后不再提供独立刷新按钮', () => {
   assert.match(html, /data-category-toggle="notes"[^>]*aria-expanded="false"/u);
   assert.match(html, /data-category-select="notes"/u);
   assert.match(html, /id="note-rows"/u);
-  assert.doesNotMatch(html, /id="note-export-btn"/u);
+  assert.match(html, /id="note-count" class="category-count-pill"/u);
+  assert.doesNotMatch(html, /id="note-export-btn"|refresh-notes-btn|note-refresh/u);
+  assert.doesNotMatch(source, /refreshNotesBtn|refresh-notes-btn/u);
+  const styles = fs.readFileSync(new URL('../desktop/ui/styles.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(styles, /\.note-refresh/u);
 });
+
+test('四个顶级分类都有右侧数量胶囊，且不再显示顶部说明行', () => {
+  for (const id of ['note-count', 'knowledge-count', 'favorite-count', 'collaboration-count']) {
+    assert.match(html, new RegExp(`id="${id}" class="category-count-pill"`, 'u'));
+  }
+  assert.doesNotMatch(html, /id="book-count"|book-count-line/u);
+  assert.doesNotMatch(source, /book-count-line|已选 \$\{state\.selectedDocumentKeys\.size\} 篇/u);
+  // 三个分类的数量来自各自现有计数源，而不是继续写入已删除的说明行。
+  assert.match(source, /elements\.knowledgeCount\.textContent = String\(totalDocs\)/u);
+  assert.match(source, /elements\.favoriteCount\.textContent = String\(counts\.get\('favorite'\)\.total\)/u);
+  assert.match(source, /elements\.collaborationCount\.textContent = String\(counts\.get\('collaboration'\)\.total\)/u);
+});
+test('小记标题最多显示约20字，超出用省略号且悬停保留全文', () => {
+  const { ui } = fixture();
+  const longText = '一二三四五六七八九十一二三四五六七八九十超出部分';
+  ui.applyNoteScanResult(snapshot([{ ...note('1'), summary: longText }]));
+  const title = noteRows(ui)[0].children[1].children[0];
+  assert.equal(title.textContent, `${Array.from(longText).slice(0, 20).join('')}…`);
+  assert.equal(title.title, longText);
+
+  const shortText = '短摘要';
+  ui.applyNoteScanResult(snapshot([{ ...note('2'), summary: shortText }]));
+  const shortTitle = noteRows(ui)[0].children[1].children[0];
+  assert.equal(shortTitle.textContent, shortText);
+  assert.equal(shortTitle.title, shortText);
+});
+
 test('完整快照提交并保留仍存在的选择，空摘要使用兜底', () => {
   const { ui, nodes } = fixture();
   ui.state.selectedNoteKeys.add(note().documentKey);
@@ -257,20 +288,23 @@ test('分组全选只增删本组，计数按documentKey去重且清除其他来
   assert.equal(ui.state.selectedNoteKeys.size, 2);
   assert.equal(ui.state.selectedBooks.size, 0);
   assert.equal(ui.state.selectedDocumentKeys.size, 0);
-  assert.equal(ui.elements.noteCount.textContent, '2/3');
+  assert.equal(ui.elements.noteCount.textContent, '3');
+  assert.equal(ui.elements.noteCount.title, '已选 2 篇');
   const category = categoryCheckbox(fixtureInstance);
   assert.equal(category.checked, false);
   assert.equal(category.indeterminate, true);
 
   ui.setNoteGroupSelection('生活', true);
   assert.equal(ui.state.selectedNoteKeys.size, 3, '跨组重复 note 只能计一次');
-  assert.equal(ui.elements.noteCount.textContent, '3/3');
+  assert.equal(ui.elements.noteCount.textContent, '3');
+  assert.equal(ui.elements.noteCount.title, '已选 3 篇');
   assert.equal(category.checked, true);
 
   // 取消勾选“工作”会按 documentKey 全局移除该组小记（含同时属于“生活”的那条）。
   ui.setNoteGroupSelection('工作', false);
   assert.deepEqual([...ui.state.selectedNoteKeys], [lifeOnly.documentKey]);
-  assert.equal(ui.elements.noteCount.textContent, '1/3');
+  assert.equal(ui.elements.noteCount.textContent, '3');
+  assert.equal(ui.elements.noteCount.title, '已选 1 篇');
 });
 
 test('无标签小记归入未分类且排在最后，组DOM标识不使用标签拼接', () => {

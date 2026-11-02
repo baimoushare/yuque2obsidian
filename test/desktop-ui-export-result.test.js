@@ -165,6 +165,13 @@ test('导出配置与内容列表共用收紧后的卡片高度', () => {
   assert.match(styles, /\.content-list-scroll\s*\{[^}]*overflow-y:\s*auto/su);
 });
 
+test('窄窗口下配置字段保持两列且左右等宽，避免纵向堆叠后裁切', () => {
+  assert.match(styles, /grid-template-columns: minmax\(280px, 1fr\) minmax\(420px, 1fr\)/u);
+  assert.match(styles, /minmax\(min\(220px, 46%\), 1fr\)/u);
+  const notes = fs.readFileSync(new URL('./desktop-ui-notes.test.js', import.meta.url), 'utf8');
+  assert.match(notes, /最多显示约20字/u);
+});
+
 test('整体与当前知识库进度统计同行靠右显示，不再单独占行', () => {
   for (const [statsId, textId] of [
     ['progress-stats', 'progress-text'],
@@ -374,12 +381,14 @@ for (const functionName of ['autoScanBooksOnLaunch', 'autoScanBooksAfterLogin'])
       },
       applyBookScanResult: () => events.push('apply-books'),
       scanDocumentSources: async () => events.push('sources'),
+      waitForTaskIdle: async () => events.push('idle'),
+      scanNotes: async (options) => events.push(`notes:${options?.auto === true}`),
     };
     await vm.runInNewContext(
       `(async () => { ${scanFunctions}; await ${functionName}(); })()`,
       context,
     );
-    assert.deepEqual(events, ['books', 'apply-books', 'sources']);
+    assert.deepEqual(events, ['books', 'apply-books', 'sources', 'idle', 'notes:true']);
   });
 }
 

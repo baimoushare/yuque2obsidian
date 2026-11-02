@@ -323,16 +323,14 @@
               </button>
             </div>
           </div>
-          <span id="book-count" class="muted book-count-line">未扫描</span>
           <div id="content-list-scroll" class="content-list-scroll">
             <section class="content-category">
               <h3 class="content-category-title">
                 <label class="category-select">
                   <input type="checkbox" data-category-select="notes" aria-label="全选小记" />
                   <span id="notes-category-title">小记</span>
-                  <span id="note-count" class="muted"></span>
                 </label>
-                <button id="refresh-notes-btn" class="ghost small note-refresh" type="button" aria-label="重新扫描小记" title="重新扫描小记">刷新</button>
+                <span id="note-count" class="category-count-pill"></span>
                 <button class="content-category-toggle" type="button" data-category-toggle="notes" aria-expanded="false" aria-controls="note-rows" aria-label="展开或折叠小记并扫描">
                   <span class="select-chevron category-chevron" aria-hidden="true"></span>
                 </button>
@@ -345,6 +343,7 @@
                   <input type="checkbox" data-category-select="knowledge" aria-label="全选知识库" />
                   <span id="knowledge-category-title">知识库</span>
                 </label>
+                <span id="knowledge-count" class="category-count-pill"></span>
                 <button class="content-category-toggle" type="button" data-category-toggle="knowledge" aria-expanded="true" aria-controls="books-list" aria-label="展开或折叠知识库">
                   <span class="select-chevron category-chevron" aria-hidden="true"></span>
                 </button>
@@ -359,6 +358,7 @@
                     <input type="checkbox" data-category-select="favorite" aria-label="全选收藏文档" />
                     <span id="favorite-category-title">收藏</span>
                   </label>
+                  <span id="favorite-count" class="category-count-pill"></span>
                   <button class="content-category-toggle" type="button" data-category-toggle="favorite" aria-expanded="true" aria-controls="favorite-document-rows" aria-label="展开或折叠收藏">
                     <span class="select-chevron category-chevron" aria-hidden="true"></span>
                   </button>
@@ -371,6 +371,7 @@
                     <input type="checkbox" data-category-select="collaboration" aria-label="全选协作文档" />
                     <span id="collaboration-category-title">协作</span>
                   </label>
+                  <span id="collaboration-count" class="category-count-pill"></span>
                   <button class="content-category-toggle" type="button" data-category-toggle="collaboration" aria-expanded="true" aria-controls="collaboration-document-rows" aria-label="展开或折叠协作">
                     <span class="select-chevron category-chevron" aria-hidden="true"></span>
                   </button>

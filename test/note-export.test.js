@@ -107,3 +107,31 @@ test('notes authentication failure stops remaining selections without leaking re
     assert.doesNotMatch(JSON.stringify(result), /PRIVATE_COOKIE/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('internal yuque doc links become obsidian links only when the target is already exported', async () => {
+  const dir = temp();
+  const docPath = path.join(dir, '知识库', '目标文档.md');
+  fs.mkdirSync(path.dirname(docPath), { recursive: true });
+  fs.writeFileSync(docPath, '# 目标\n');
+  fs.writeFileSync(path.join(dir, '.yuque-export-state.json'), JSON.stringify({
+    version: 2,
+    meta: { createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' },
+    documents: {
+      'yuque:1:2': {
+        documentKey: 'yuque:1:2',
+        yuquePath: 'https://www.yuque.com/owner/book/doc',
+        targetMdPath: docPath,
+        outputPath: docPath,
+        status: 'exported',
+      },
+    },
+  }));
+  const linked = { ...note(), body: '[文档](/owner/book/doc)  [缺失文档](/owner/book/missing)' };
+  try {
+    const result = await exportNotes(config(dir), () => {}, opts(linked));
+    const text = fs.readFileSync(result.notes[0].path, 'utf8');
+    assert.match(text, /\[\[知识库\/目标文档\|文档\]\]/);
+    assert.match(text, /\[缺失文档\]\(https:\/\/www\.yuque\.com\/owner\/book\/missing\)/);
+    assert.doesNotMatch(text, /www\.yuque\.com\/owner\/book\/doc/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

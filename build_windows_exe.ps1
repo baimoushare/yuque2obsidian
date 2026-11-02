@@ -243,6 +243,7 @@ Get-ChildItem -Path $releaseDir -Force -ErrorAction SilentlyContinue | ForEach-O
 
 try {
   # 中文工作区路径通过 Unicode 环境变量传入，避免 Python -c 命令行按系统代码页转码。
+  Write-Host "Icon source: $iconPng"
   $env:YUQUE_APP_ICON_PNG = $iconPng
   $env:YUQUE_APP_ICON_ICO = $iconIco
   & $pythonExe -c "import os; from PIL import Image; Image.open(os.environ['YUQUE_APP_ICON_PNG']).save(os.environ['YUQUE_APP_ICON_ICO'], format='ICO', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"

@@ -100,18 +100,62 @@ test('未知卡片不静默丢弃，保留可见文字并标记原始 Lake 内�
   assert.ok(wrappedCard.rawSource);
 });
 
-test('空壳卡片、资源容器和合并表格不能被误报完整', () => {
+test('空壳卡片和资源容器不能被误报完整', () => {
   for (const html of [
     '<div data-type="card" data-value="opaque"></div>',
     '<span data-type="image" data-value="opaque"></span>',
-    '<table><tr><td colspan="2">合并单元格</td></tr></table>',
-    '<table><tr><td rowspan="2">合并单元格</td></tr></table>',
   ]) {
     const result = convertNoteToMarkdown(note({ html }));
     assert.equal(result.incomplete, true);
     assert.ok(result.warnings.length > 0);
     assert.ok(result.rawSource);
   }
+});
+
+test('简单合并单元格改用 HTML 表格保留结构，不再误报不完整', () => {
+  const result = convertNoteToMarkdown(note({
+    html: '<table><tr><td rowspan="2">合并单元格</td><td>A</td></tr><tr><td>B</td></tr></table>',
+  }));
+  assert.equal(result.incomplete, false);
+  assert.match(result.markdown, /<table>/);
+  assert.match(result.markdown, /rowspan="2"/);
+  assert.match(result.markdown, /合并单元格/);
+});
+
+test('Lake 图片/书签卡片从 data URI 值恢复链接，不把正文丢成空壳', () => {
+  const card = (name, value) => `<card type="${name === 'yuque' ? 'block' : 'inline'}" name="${name}" value="data:${encodeURIComponent(JSON.stringify(value))}"/>`;
+  const image = convertNoteToMarkdown(note({
+    html: `<p>${card('image', { src: 'https://cdn.example.com/card.png' })}</p>`,
+  }));
+  assert.equal(image.incomplete, false);
+  assert.match(image.markdown, /!\[\]\(https:\/\/cdn\.example\.com\/card\.png\)/);
+
+  const bookmark = convertNoteToMarkdown(note({
+    html: `<p>${card('bookmarklink', { src: 'https://example.com/site', text: '示例站点' })}</p>`,
+  }));
+  assert.equal(bookmark.incomplete, false);
+  assert.match(bookmark.markdown, /\[示例站点\]\(https:\/\/example\.com\/site\)/);
+});
+
+test('语雀文档卡片占位文字变成可点击名称，站内相对链接不被误判不安全', () => {
+  const source = '<card type="block" name="yuque" value="data:%7B%22src%22%3A%22https%3A%2F%2Fwww.yuque.com%2Fdocs%2Fshare%2Fabc%22%7D"/>';
+  const result = convertNoteToMarkdown(note({
+    html: '<p>此处为语雀内容卡片，点击链接查看：<a href="https://www.yuque.com/docs/share/abc">https://www.yuque.com/docs/share/abc</a></p><p><a href="/docs/share/xyz">站内链接</a></p>',
+    rawSource: source,
+  }));
+  assert.equal(result.incomplete, false);
+  assert.match(result.markdown, /\[语雀内容卡片\]\(https:\/\/www\.yuque\.com\/docs\/share\/abc\)/);
+  assert.match(result.markdown, /\[站内链接\]\(https:\/\/www\.yuque\.com\/docs\/share\/xyz\)/);
+  assert.doesNotMatch(result.markdown, /此处为语雀内容卡片，点击链接查看/);
+});
+
+test('协议相对外链补 https，不会误拼成语雀站内链接', () => {
+  const result = convertNoteToMarkdown(note({
+    html: '<p><a href="//www.zhihu.com/people/demo">知乎用户</a></p>',
+  }));
+  assert.equal(result.incomplete, false);
+  assert.match(result.markdown, /\[知乎用户\]\(https:\/\/www\.zhihu\.com\/people\/demo\)/);
+  assert.doesNotMatch(result.markdown, /yuque\.com\/\/www\.zhihu/);
 });
 
 test('HTML checkbox保留已完成和未完成状态，其他input显式不完整', () => {

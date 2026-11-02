@@ -1,6 +1,6 @@
 {
   "name": "yuque-exporter-obsidian",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "将语雀知识库、文档与小记导出为 Markdown，面向 Obsidian 归档的 Windows 桌面工具",
   "license": "AGPL-3.0-only",
   "author": "baimoushare",

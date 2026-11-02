@@ -25,9 +25,21 @@
   color: var(--text-soft);
 }
 
-.note-refresh {
+/* 小记数量与知识库条目共用同一种右侧胶囊，避免列表层级之间样式不一致。 */
+.category-count-pill {
+  flex: 0 0 auto;
   margin-left: auto;
-  padding: 2px 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(175, 146, 255, 0.14);
+  color: var(--text-soft);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.category-count-pill:empty {
+  display: none;
 }
 
 /* 小记标签分组：紧凑标题行 + 可折叠组体，保持与内容树一致的视觉密度。 */
@@ -110,8 +122,12 @@
 .note-group-count {
   flex: 0 0 auto;
   margin-left: auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(175, 146, 255, 0.14);
   color: var(--text-soft);
   font-size: var(--font-size-caption);
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -519,7 +535,8 @@ h2 {
 
 .config-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
+  /* 左右两列等宽：窄窗口下给导出选项足够宽度，避免下拉文字被过度截断。 */
+  grid-template-columns: minmax(280px, 1fr) minmax(420px, 1fr);
   gap: var(--space-3);
   align-items: stretch;
 }
@@ -593,7 +610,8 @@ h2 {
 
 .config-group-body.columns-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  /* 窄窗口也保持两列，避免字段被迫纵向堆叠后超出固定高度卡片。 */
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 46%), 1fr));
   gap: 8px var(--space-3);
   align-items: start;
 }
@@ -706,11 +724,6 @@ h2 {
 .muted {
   color: var(--text-soft);
   font-size: var(--font-size-secondary);
-}
-
-.book-count-line {
-  display: block;
-  margin-top: -8px;
 }
 
 label {

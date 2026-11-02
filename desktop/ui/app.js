@@ -70,10 +70,11 @@ const elements = {
   booksList: $('#books-list'),
   noteRows: $('#note-rows'),
   noteCount: $('#note-count'),
-  refreshNotesBtn: $('#refresh-notes-btn'),
+  knowledgeCount: $('#knowledge-count'),
+  favoriteCount: $('#favorite-count'),
+  collaborationCount: $('#collaboration-count'),
   favoriteDocumentRows: $('#favorite-document-rows'),
   collaborationDocumentRows: $('#collaboration-document-rows'),
-  bookCount: $('#book-count'),
   progressMeta: $('#progress-meta'),
   progressBar: $('#progress-bar'),
   progressText: $('#progress-text'),
@@ -197,7 +198,6 @@ function wireEvents() {
   elements.loginBtn.addEventListener('click', startLogin);
   elements.scanBtn.addEventListener('click', scanBooks);
   elements.exportBtn.addEventListener('click', onExportButtonClick);
-  elements.refreshNotesBtn.addEventListener('click', () => scanNotes());
   document.querySelectorAll('[data-category-toggle]').forEach((toggle) => {
     toggle.addEventListener('click', () => {
       toggleCategory(toggle.dataset.categoryToggle);
@@ -923,6 +923,8 @@ async function scanBooks() {
     await refreshLoginStatus();
     state.taskStarting = false;
     await scanDocumentSources();
+    await waitForTaskIdle();
+    await scanNotes({ auto: true });
   } catch (error) {
     renderStatus(`扫描知识库失败: ${error.message}`);
   } finally {
@@ -976,6 +978,25 @@ function applyDocumentSourceScanResult(result = {}) {
   );
 }
 
+// 自动刷新按顺序执行：等待上一个后台任务结束，避免小记扫描与收藏扫描并发冲突。
+function waitForTaskIdle(timeoutMs = 180000) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (!isTaskBusy() || Date.now() - startedAt >= timeoutMs) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 250);
+  });
+}
+
+function ensureCategoryExpanded(categoryId) {
+  const toggle = document.querySelector(`[data-category-toggle="${categoryId}"]`);
+  if (!toggle || toggle.getAttribute('aria-expanded') === 'true') return;
+  toggleCategory(categoryId);
+}
+
 async function autoScanBooksOnLaunch() {
   renderStatus('已检测到登录账号，正在自动扫描知识库、收藏与协作...');
   try {
@@ -985,6 +1006,8 @@ async function autoScanBooksOnLaunch() {
     renderStatus(`自动扫描知识库失败: ${error.message}`);
   }
   await scanDocumentSources();
+  await waitForTaskIdle();
+  await scanNotes({ auto: true });
 }
 
 async function autoScanBooksAfterLogin() {
@@ -996,6 +1019,8 @@ async function autoScanBooksAfterLogin() {
     renderStatus(`登录完成，但自动扫描知识库失败: ${error.message}`);
   }
   await scanDocumentSources();
+  await waitForTaskIdle();
+  await scanNotes({ auto: true });
 }
 
 async function requestBookScan() {
@@ -1351,7 +1376,8 @@ function renderBooks() {
   if (state.books.length === 0) {
     elements.booksList.className = 'books-list empty-state';
     elements.booksList.textContent = '没有可导出的知识库。';
-    elements.bookCount.textContent = '0 个知识库 / 0 篇文档';
+    elements.knowledgeCount.textContent = '0';
+    elements.knowledgeCount.title = '0 个知识库';
     syncTreeFoldToggleButton();
     syncCategorySelectionControls();
     syncControls();
@@ -1360,7 +1386,8 @@ function renderBooks() {
 
   const totalDocs = state.books.reduce((sum, book) => sum + (book.documentCount || 0), 0);
   elements.booksList.className = 'books-list';
-  elements.bookCount.textContent = `${state.books.length} 个知识库 / ${totalDocs} 篇文档`;
+  elements.knowledgeCount.textContent = String(totalDocs);
+  elements.knowledgeCount.title = `${state.books.length} 个知识库`;
   elements.booksList.innerHTML = '';
 
   const tree = document.createElement('div');
@@ -1397,7 +1424,8 @@ function renderDocumentSources() {
       list.className = 'empty-state';
       list.textContent = '扫描知识库后会同时读取此分类。';
     }
-    if (state.books.length === 0) elements.bookCount.textContent = '尚未扫描';
+    elements.favoriteCount.textContent = '';
+    elements.collaborationCount.textContent = '';
     syncCategorySelectionControls();
     syncControls();
     return;
@@ -1463,10 +1491,8 @@ function renderDocumentSources() {
       list.appendChild(row);
     }
   }
-  elements.bookCount.textContent =
-    `收藏 ${counts.get('favorite').total}/${counts.get('favorite').total} 篇 · `
-    + `协作 ${counts.get('collaboration').total}/${counts.get('collaboration').total} 篇 · `
-    + `已选 ${state.selectedDocumentKeys.size} 篇 · ${state.documentSourcesExcludedCount} 个入口/项目未展开`;
+  elements.favoriteCount.textContent = String(counts.get('favorite').total);
+  elements.collaborationCount.textContent = String(counts.get('collaboration').total);
   syncCategorySelectionControls();
   syncControls();
 }
@@ -1599,6 +1625,16 @@ function toggleNoteGroupCollapse(label) {
   renderNotes();
 }
 
+const NOTE_SUMMARY_DISPLAY_LIMIT = 20;
+
+// 小记没有标题，摘要可能很长；列表只展示约 20 个字符，完整内容留在悬停提示和 aria-label 中。
+function formatNoteSummary(value, limit = NOTE_SUMMARY_DISPLAY_LIMIT) {
+  const text = String(value || '').trim() || '无文字小记';
+  const characters = Array.from(text);
+  if (characters.length <= limit) return text;
+  return `${characters.slice(0, limit).join('')}…`;
+}
+
 function renderNoteRow(note) {
   const row = document.createElement('div');
   row.className = 'tree-row note-row';
@@ -1608,8 +1644,9 @@ function renderNoteRow(note) {
   checkbox.type = 'checkbox';
   checkbox.dataset.noteKey = note.documentKey;
   checkbox.checked = state.selectedNoteKeys.has(note.documentKey);
-  const summary = String(note.summary || '').trim() || '无文字小记';
-  checkbox.setAttribute('aria-label', `选择小记：${summary}`);
+  const fullSummary = String(note.summary || '').trim() || '无文字小记';
+  const summary = formatNoteSummary(fullSummary);
+  checkbox.setAttribute('aria-label', `选择小记：${fullSummary}`);
   checkbox.addEventListener('change', () => setNoteSelected(note.documentKey, checkbox.checked));
   wrap.appendChild(checkbox);
 
@@ -1619,6 +1656,7 @@ function renderNoteRow(note) {
   label.addEventListener('click', () => checkbox.click());
   const title = document.createElement('strong');
   title.textContent = summary;
+  title.title = fullSummary;
   const meta = document.createElement('span');
   meta.className = 'note-meta';
   // 远端摘要、日期仅用 textContent；标签已作为组标题展示，标签原文同样只走 textContent。
@@ -1669,7 +1707,8 @@ function renderNoteGroup(group) {
   titleText.textContent = label;
   const count = document.createElement('span');
   count.className = 'note-group-count';
-  count.textContent = `${selectedCount}/${group.notes.length}`;
+  count.textContent = String(group.notes.length);
+  count.title = `已选 ${selectedCount} 篇`;
   toggle.append(chevron, titleText, count);
   header.append(selectWrap, toggle);
 
@@ -1695,7 +1734,8 @@ function renderNotes() {
       list.appendChild(renderNoteGroup(group));
     }
   }
-  elements.noteCount.textContent = state.notesScanned ? `${state.selectedNoteKeys.size}/${state.notes.length}` : '';
+  elements.noteCount.textContent = state.notesScanned ? String(state.notes.length) : '';
+  elements.noteCount.title = state.notesScanned ? `已选 ${state.selectedNoteKeys.size} 篇` : '';
   syncCategorySelectionControls();
   syncControls();
 }
@@ -1704,10 +1744,15 @@ function resetProgressSnapshot() {
   state.lastProgressSnapshot = { completedBooks: 0, totalBooks: 0, completedDocuments: 0, totalDocuments: 0, bookCompleted: 0, bookTotal: 0, currentBook: '', currentDoc: '' };
 }
 
-async function scanNotes() {
+async function scanNotes(options = {}) {
+  const auto = options.auto === true;
   if (isTaskBusy()) return;
   const generation = state.noteGeneration;
   if (!getLoginAccountScope()) { renderStatus('请先登录语雀。'); return; }
+  if (auto) {
+    ensureCategoryExpanded('notes');
+    renderStatus('正在自动扫描小记...');
+  }
   state.taskStarting = true;
   syncControls();
   try {
@@ -1939,7 +1984,7 @@ function renderTreeNode(node, meta) {
     label.appendChild(title);
     const count = document.createElement('span');
     count.className = 'book-doc-count';
-    count.textContent = `${meta.docCount} 篇`;
+    count.textContent = String(meta.docCount);
     label.appendChild(count);
     label.addEventListener('click', (event) => handleBookSelectionInteraction(meta.bookId, event, 'label'));
   } else {
@@ -2638,7 +2683,6 @@ function syncControls() {
   const hasCurrentViewContent = hasBooks || hasSourceDocuments || state.notes.length > 0;
 
   elements.loginBtn.disabled = anyJobRunning;
-  elements.refreshNotesBtn.disabled = anyJobRunning || exportPaused;
   document.querySelectorAll('[data-category-toggle="notes"]').forEach((button) => { button.disabled = anyJobRunning || exportPaused; });
   elements.scanBtn.disabled = anyJobRunning;
   elements.chooseFailureCsvBtn.disabled = anyJobRunning;

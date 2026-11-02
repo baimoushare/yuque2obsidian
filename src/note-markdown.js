@@ -2,13 +2,13 @@
  * 小记正文是来自远端的非受信任内容。此模块只做纯转换，不访问网络或浏览器，
  * 便于在导出前稳定测试；HTML 仅覆盖已验证的常用标签。
  */
-const VOID_TAGS = new Set(['br', 'hr', 'img', 'source', 'meta', 'link', 'input']);
+const VOID_TAGS = new Set(['br', 'hr', 'img', 'source', 'meta', 'link', 'input', 'card', 'col']);
 const INLINE_TAGS = new Set(['a', 'b', 'strong', 'i', 'em', 's', 'strike', 'del', 'code', 'span', 'u', 'mark', 'small', 'sub', 'sup', 'br']);
 const KNOWN_TAGS = new Set([
   ...INLINE_TAGS,
   ...VOID_TAGS,
   'p', 'div', 'section', 'article', 'main', 'header', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'ul', 'ol', 'li', 'blockquote', 'pre', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+  'ul', 'ol', 'li', 'blockquote', 'pre', 'table', 'colgroup', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
 ]);
 
 /**
@@ -49,12 +49,13 @@ export function convertNoteToMarkdown(note = {}) {
   const format = String(note.bodyFormat ?? note.format ?? '').trim().toLowerCase();
   const body = String(note.body ?? '');
   if (body && (format === 'markdown' || format === 'md')) {
-    return compactResult({ markdown: normalizeMarkdown(body), warnings, incomplete: warnings.length > 0 });
+    return compactResult({ markdown: normalizeRelativeMarkdownUrls(normalizeMarkdown(body)), warnings, incomplete: warnings.length > 0 });
   }
 
   const html = String(note.html ?? '');
   if (html.trim()) {
     const parsed = htmlToMarkdown(html, warnings);
+    parsed.markdown = improveGenericCardLinks(parsed.markdown, note.rawSource || html);
     return compactResult({
       markdown: parsed.markdown,
       warnings,
@@ -103,6 +104,16 @@ function compactResult(result) {
 function yamlString(value) {
   // JSON 字符串也是 YAML 合法的双引号标量，并会转义引号、换行和控制符。
   return JSON.stringify(String(value ?? ''));
+}
+
+function normalizeRelativeMarkdownUrls(markdown) {
+  // 服务端 Markdown 正文也可能写站内相对链接或协议相对外链；先补成可识别的绝对地址，
+  // 后续导出编排才能把已导出的目标替换为 Obsidian 内链。
+  return String(markdown).replace(/(\]\()(?:<)?(\/\/[^\s)>]+|\/[^\s)>]+)(?:>)?(\))/g, (match, open, url, close) => {
+    if (url.startsWith('//')) return `${open}https:${url}${close}`;
+    if (url.startsWith('/')) return `${open}https://www.yuque.com${url}${close}`;
+    return match;
+  });
 }
 
 function normalizeMarkdown(value) {
@@ -167,6 +178,9 @@ function renderNode(node, context, options = {}) {
   if (node.type === 'text') return options.inPre ? String(node.value ?? '') : normalizeText(node.value);
   const { tag, attrs, children } = node;
   const inner = () => renderChildren(children, context, { block: false, inPre: options.inPre });
+  // 语雀 Lake 的图片、书签、文件等常以 <card> 承载，真正地址在 value 的 data URI JSON 中。
+  if (tag === 'card') return renderCard(node, context);
+  if (tag === 'col' || tag === 'colgroup') return '';
   // Lake 有时把卡片落在普通 div/span 上，不能因标签本身受支持就宣称内容完整。
   const cardKind = attrs['data-card-type'] || attrs['data-card-key'] || attrs['data-card-name']
     || (/^(?:card|image|file|attachment|video|audio)$/iu.test(attrs['data-type'] || '') && attrs['data-type']);
@@ -212,6 +226,72 @@ function renderNode(node, context, options = {}) {
   return inner();
 }
 
+function renderCard(node, context) {
+  const attrs = node.attrs || {};
+  const data = decodeCardValue(attrs.value);
+  const name = String(attrs.name || data.name || '').trim().toLowerCase();
+  const src = safeUrl(data.src || data.url || attrs.src || '');
+  const label = String(data.title || data.text || data.name || attrs.text || '').trim();
+  if (name === 'hr') return '\n\n---\n\n';
+  if ((name === 'image' || name === 'img') && src) {
+    const alt = String(data.text || attrs.alt || '').replace(/[\[\]]/g, '\\$&');
+    return `\n\n![${alt}](${escapeMarkdownUrl(src)})\n\n`;
+  }
+  if (['yuque', 'bookmarklink', 'file', 'attachment', 'video', 'audio'].includes(name) && src) {
+    // 卡片值里的 text 可能本身就是网址；这时给一个可读标签，避免链接文字又是一长串 URL。
+    const text = label && !/^https?:/iu.test(label) ? label : (name === 'bookmarklink' ? src : '语雀卡片');
+    return `\n\n[${text}](${escapeMarkdownUrl(src)})\n\n`;
+  }
+  markUnknown('card', context);
+  const visible = renderChildren(node.children || [], context).trim();
+  return `${visible}${visible ? '\n\n' : ''}> 注：小记转换不完整：未支持的内容块 card。\n\n`;
+}
+
+function decodeCardValue(value) {
+  let payload = String(value ?? '').trim();
+  if (!payload) return {};
+  if (payload.startsWith('data:')) payload = payload.slice('data:'.length);
+  let decoded = payload;
+  try { decoded = decodeURIComponent(payload); } catch { /* 保留原文以便后续尝试 */ }
+  try {
+    const parsed = JSON.parse(decoded);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function improveGenericCardLinks(markdown, source) {
+  const cards = [...String(source ?? '').matchAll(/<card\b([^>]*)>/gi)]
+    .map((match) => decodeCardValue(/value="([^"]*)"/i.exec(match[1])?.[1] || ''));
+  if (cards.length === 0) return markdown;
+  const labels = new Map();
+  for (const card of cards) {
+    const src = safeUrl(card.src || card.url || '');
+    const label = String(card.title || card.text || '').trim();
+    if (src && label && !/^https?:/iu.test(label)) labels.set(src, label);
+  }
+  // 服务端对部分语雀文档卡片只给固定占位文字，按卡片 src 还原标题链接。
+  const replacePlaceholder = (match, displayedUrl, href) => {
+    const label = labels.get(href) || labels.get(displayedUrl);
+    // 没有标题时也别把一长串 URL 当正文，至少保留一个可点击的卡片名称。
+    return `[${label || '语雀内容卡片'}](${href})`;
+  };
+  return markdown
+    .replace(
+      /\[此处为语雀(?:内容)?卡片，点击链接查看[:：]?\s*([^\]]+)\]\((https?:[^)]+)\)/gu,
+      replacePlaceholder,
+    )
+    .replace(
+      /此处为语雀(?:内容)?卡片，点击链接查看[:：]?\s*\[([^\]]+)\]\((https?:[^)]+)\)/gu,
+      replacePlaceholder,
+    );
+}
+
+function escapeMarkdownUrl(url) {
+  return String(url).replace(/[()]/g, (character) => character === '(' ? '%28' : '%29');
+}
+
 function renderLink(label, href, context) {
   const text = label.trim() || '链接';
   const safe = safeUrl(href);
@@ -249,10 +329,15 @@ function renderList(node, context, depth) {
 }
 
 function renderTable(node, context) {
-  // Markdown 表格不能表达跨行跨列。保留单元格文本，但必须提示降级并保全原文。
+  // Markdown 表格不能表达跨行跨列。简单合并表改用只含文本的 HTML 表格保留结构；
+  // 若单元格还含图片/链接/卡片，仍标记不完整，避免 HTML 内的 Markdown 资源不被本地化。
   const hasMergedCells = [...findAll(node, 'th'), ...findAll(node, 'td')]
     .some((cell) => Number(cell.attrs.rowspan || 1) > 1 || Number(cell.attrs.colspan || 1) > 1);
-  if (hasMergedCells) markUnknown('table-merged-cells', context);
+  if (hasMergedCells) {
+    const hasRichContent = ['img', 'a', 'card'].some((tag) => findAll(node, tag).length > 0);
+    if (hasRichContent) markUnknown('table-merged-cells', context);
+    return renderTableHtml(node);
+  }
   const rows = findAll(node, 'tr').map((row) => row.children
     .filter((cell) => cell.type === 'element' && (cell.tag === 'th' || cell.tag === 'td'))
     .map((cell) => renderChildren(cell.children, context).replace(/\n+/g, ' ').trim().replace(/\|/g, '\\|'))
@@ -262,6 +347,41 @@ function renderTable(node, context) {
   const header = [...rows[0], ...Array(Math.max(0, width - rows[0].length)).fill('')];
   const body = rows.slice(1).map((row) => [...row, ...Array(Math.max(0, width - row.length)).fill('')]);
   return `\n\n| ${header.join(' | ')} |\n| ${header.map(() => '---').join(' | ')} |\n${body.map((row) => `| ${row.join(' | ')} |`).join('\n')}\n\n`;
+}
+
+function renderTableHtml(node) {
+  const rows = findAll(node, 'tr')
+    // 合并单元格会产生没有可见文字的补位行，输出到 HTML 表格里只会显示成一排空行。
+    .filter((row) => plainText(row.children).trim())
+    .map((row) => {
+    const cells = row.children.filter((cell) => cell.type === 'element' && (cell.tag === 'th' || cell.tag === 'td'));
+    const rendered = cells.map((cell) => {
+      const span = ['rowspan', 'colspan']
+        .filter((name) => Number(cell.attrs[name] || 1) > 1)
+        .map((name) => ` ${name}="${Number(cell.attrs[name])}"`)
+        .join('');
+      const text = plainText(cell.children).replace(/\n+/g, '<br>');
+      return `<${cell.tag}${span}>${escapeHtml(text)}</${cell.tag}>`;
+    }).join('');
+    return `<tr>${rendered}</tr>`;
+  });
+  return `\n\n<table>\n${rows.join('\n')}\n</table>\n\n`;
+}
+
+function plainText(nodes) {
+  return nodes.map((node) => {
+    if (node.type === 'text') return String(node.value ?? '');
+    if (node.tag === 'br') return '\n';
+    return plainText(node.children || []);
+  }).join('').replace(/[ \t]+/g, ' ').trim();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function findFirst(nodes, tag) {
@@ -292,6 +412,11 @@ function markUnsafeLink(context) {
 function safeUrl(value) {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
+  // 协议相对外链（//host/path）先补 https，不能当成语雀站内根路径。
+  if (raw.startsWith('//')) return `https:${raw}`;
+  // 站内相对链接和页内锚点本身安全；统一补成语雀绝对地址，避免被误判为不安全链接。
+  if (raw.startsWith('#')) return raw;
+  if (raw.startsWith('/')) return `https://www.yuque.com${raw}`;
   try {
     const parsed = new URL(raw);
     return /^https?:$/iu.test(parsed.protocol) ? parsed.toString() : '';

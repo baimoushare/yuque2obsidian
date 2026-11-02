@@ -13,6 +13,8 @@ import { downloadBinaryAsset } from './exporter.js';
 import { ensureDir, sanitizeFileName, writeJson } from './utils.js';
 
 const digest = (value) => crypto.createHash('sha256').update(value).digest('hex');
+// 转换规则变化时必须提升版本，否则增量导出会把旧转换结果误判为“未变化”而跳过。
+const NOTE_CONVERSION_VERSION = 3;
 const isInside = (root, file) => {
   const relative = path.relative(root, file);
   return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
@@ -91,6 +93,25 @@ function indexesPresent(record, indexFiles, root) {
       && digest(fs.readFileSync(file)) === known.hash;
   });
 }
+// 已有知识库导出记录可作为站内链接目标。只登记真实存在、且位于当前导出根内的文件，
+// 找不到目标时保留网页地址，避免生成断链。
+function buildNoteDocLinkMap(store, contentRoot) {
+  const map = new Map();
+  for (const record of Object.values(store?.state?.documents || {})) {
+    const target = String(record?.targetMdPath || record?.outputPath || '').trim();
+    const sourceUrl = String(record?.yuquePath || '').trim();
+    if (!target || !/^https?:/iu.test(sourceUrl)) continue;
+    const resolved = path.resolve(target);
+    if (!isInside(contentRoot, resolved) || !fs.existsSync(resolved)) continue;
+    try {
+      const parsed = new URL(sourceUrl);
+      map.set(sourceUrl.replace(/\/$/, ''), resolved);
+      map.set(`/${parsed.pathname.replace(/^\/+|\/+$/g, '')}`, resolved);
+    } catch { /* 忽略状态里的坏链接 */ }
+  }
+  return map;
+}
+
 export async function exportNotes(config, emit = () => {}, options = {}) {
   const keys = [...new Set((config.selectedNoteKeys || []).map(String))];
   if (!keys.length) throw new Error('请先选择至少一条小记。');
@@ -104,6 +125,7 @@ export async function exportNotes(config, emit = () => {}, options = {}) {
   ensureDir(outputDir);
   assertNoLinkedPath(outputDir, path.join(outputDir, '.yuque-export-state.json'));
   const store = new ExportStateStore(outputDir);
+  const noteDocLinkMap = buildNoteDocLinkMap(store, contentRoot);
   const logger = new FailureCsvLogger(outputDir);
   const report = { source: 'notes', accountScope, startedAt: new Date().toISOString(), outputDir, contentOutputDir: contentRoot, totals: { planned: keys.length, exported: 0, skipped: 0, incomplete: 0, failed: 0, protected: 0 }, notes: [] };
   const getDetail = options.fetchNoteDetail || fetchNoteDetail;
@@ -145,7 +167,7 @@ export async function exportNotes(config, emit = () => {}, options = {}) {
         report.notes.push({ documentKey: key, accountScope, noteId, status: 'protected', path: plan.targetMdPath });
         continue;
       }
-      const sourceVersion = digest(JSON.stringify([note.bodyFormat, note.body, note.html, note.tags, note.updatedAt, config.downloadImages !== false, config.downloadAttachments !== false]));
+      const sourceVersion = digest(JSON.stringify([NOTE_CONVERSION_VERSION, note.bodyFormat, note.body, note.html, note.tags, note.updatedAt, config.downloadImages !== false, config.downloadAttachments !== false]));
       plan.sourceVersion = sourceVersion;
       if (config.incrementalExport !== false && store.shouldSkip(plan) && assetsPresent(prior, contentRoot) && indexesPresent(prior, plan.indexFiles || [], contentRoot)) {
         report.totals.skipped += 1;
@@ -158,7 +180,7 @@ export async function exportNotes(config, emit = () => {}, options = {}) {
       const assets = [];
       const cache = new Map();
       const markdown = await processMarkdown(conversion.markdown, {
-        docName: '小记', targetMdPath: plan.targetMdPath, exportRoot: contentRoot, docLinkMap: new Map(),
+        docName: '小记', targetMdPath: plan.targetMdPath, exportRoot: contentRoot, docLinkMap: noteDocLinkMap,
         options: { downloadImages: config.downloadImages !== false, downloadAttachments: config.downloadAttachments !== false },
         async downloadAsset(url, kind) {
           if (cache.has(url)) return cache.get(url);
